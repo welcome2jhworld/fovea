@@ -1,0 +1,49 @@
+21:22:16 worker ready: {'core_start_to_known_results_s': 16.8, 'source': 'env', 'detector': 'rf-detr-nano', 'device': 'mps', 'detector_load_ms': 13283}
+21:22:16 ok    worker state ready
+21:22:23 zone sampling: {'frame_size': [960, 540], 'positive_anchor_hits': 24, 'negative_anchor_hits': 0, 'seconds': 6}
+21:22:23 rules created: positive 11615726 rev 1, negative 90b8eb80
+21:22:34 scenario 1: {'event_id': 'b0da90fc-4659-4788-a325-58921bbde66f', 'opened_after_first_known_detection_ms': 10440, 'pending_rows_before_trigger': 1, 'dwell_at_trigger_ms': 10440, 'trigger_frame_receive_to_event_row_ms': 172, 'dwell_overshoot_ms': 440, 'condition_satisfied_to_event_row_ms': 612, 'trigger_frame_utc_to_delivery_row_utc_ms': 58, 'title': 'Person in Seated desks for 10 s', 'detail': '2 persons in the zone (tracks abba2a.1-2, abba2a.1-3), longest dwell 10.4 s'}
+21:22:34 ok    exactly one event for the seated zone
+21:22:34 ok    event opened 10440 ms after the first known detection (10-15 s)
+21:22:34 ok    alert pending on console and sound: [('console', 'pending'), ('sound', 'pending')]
+21:22:34 ok    console delivery confirmed
+21:22:34 ok    sound delivery confirmed
+21:22:34 ok    delivered alerts left the pending list (0 left)
+21:22:39 scenario 4: {'revision': 2, 'events': 1, 'open_event_id': 'b0da90fc-4659-4788-a325-58921bbde66f', 'condition': 'active'}
+21:22:39 ok    rule revision 2 stored
+21:22:39 ok    the open event kept its id across the revision
+21:22:39 ok    evaluator still holds the same open event
+21:22:39 ok    event acknowledged and reviewed
+21:23:00 scenario 6: {'evidence_id': '7ff92404-cfff-414d-9255-dc65337b75c5', 'window_ms': 20000, 'segments': 3, 'available_s_after_trigger': 25.8, 'waited_s': 20.8, 'thumbnail_bytes': 160696, 'thumbnail_jpeg': True, 'playback_segment_start_utc_ms': 1789302151390, 'playback_frames_in_3s': 76, 'holds': (3, 0)}
+21:23:00 ok    trigger thumbnail is a JPEG
+21:23:00 ok    playback at the trigger time delivered 76 frames in 3 s
+21:23:00 ok    open-ended evidence holds on 3 segments
+21:23:34 ok    no second seated event within 60 s of the trigger (1 events)
+21:23:34 scenario 5: source stopped
+21:24:10 scenario 5: {'old_session': 'e607938e-b61a-46e4-94e8-e95a8f17c99b', 'new_session': '2eeba488-c4ed-439d-9dab-742c5f8a4109', 'generation_before': 4, 'generation_after': 5, 'cleared_note': 'observation gap', 'cleared_after_stop_ms': 15253, 'suppressed_rows': 1, 'first_suppressed_after_clear_ms': 10000, 'second_event_after_clear_ms': 20440, 'receive_gaps': 1}
+21:24:10 ok    session changed and the camera generation increased
+21:24:10 ok    event cleared (observation gap)
+21:24:10 ok    next occupancy reported suppressed while rearm ran
+21:24:10 ok    next event opened 20440 ms after the clear (rearm 20 s)
+21:24:15 scenario 3: killed worker pid 15671 while the 20 s rule was pending
+21:24:50 scenario 3: {'killed_pid': 15671, 'pending_before_kill_s': 5, 'restarts': 1, 'worker_ready_s_after_kill': 14.3, 'new_pid': 16323, 'unknown_rows_during_outage': 1, 'unknown_notes': ['worker_failed'], 'dwell_restart_after_kill_ms': 14346, 'events_before_resume': 0, 'event_after_resume_ms': 20440, 'rule_created_to_event_ms': 40317}
+21:24:50 ok    unknown evaluations recorded during the worker outage
+21:24:50 ok    no event opened during the outage
+21:24:50 ok    supervisor restarted the worker
+21:24:50 ok    dwell restarted: event 20440 ms after the resumed pending
+21:24:50 measurements: {"steady_window_s": 71.2, "steady_detect_fps": 2.0, "steady_unknown_ratio": 0.0, "run_unknown_ratio": 0.1774, "run_frames": {"frames_sent": 310, "frames_known": 255, "frames_unknown": 55, "skips": 0}, "achieved_fps_last_10s": 2, "core_turnaround_ms": {"p50": 71.3, "p95": 97.4, "samples": 200}, "core_request_ms": {"p50": 60.7, "p95": 82.8, "samples": 200}, "worker_detector_turnaround_ms": {"jobs": 79, "p50": 55, "p95": 78}, "negative_zone": {"events": 0, "camera_hours": 0.041, "events_per_camera_hour": 0.0}, "coverage_rows": {"rows": 3, "sent": 310, "known": 254, "unknown": 55}, "second_camera": {"achieved_fps": 2, "frames_sent": 339, "frames_known": 284, "frames_unknown": 55, "unknown_ratio": 0.16224188790560473, "turnaround_ms": {"p50": 80.8, "p95": 127.3, "samples": 200}, "skips": 0}}
+21:24:50 ok    no event on the zone nobody enters (0)
+21:24:50 scenario 7: killed the core without cleanup; worker pid [16323]
+21:24:52 scenario 7: {'operator_state': 'acknowledged', 'review': {'event_id': 'b0da90fc-4659-4788-a325-58921bbde66f', 'id': '975cf08a-b1e5-45cc-8689-b9c55f044470', 'label': 'confirmed', 'note': 'seated people', 'operator': 'verify_m3', 'utc_ms': 1789302159254}, 'deliveries': [('console', 'delivered'), ('sound', 'delivered')], 'rule_revisions': {'11615726': 2, '90b8eb80': 1, '59a3b728': 1}, 'open_before_restart': 2, 'cleared_on_startup': 2, 'worker_alive_after_core_kill': False, 'audit': [('event.open', 'rules'), ('event.acknowledge', 'verify_m3'), ('event.review', 'verify_m3')]}
+21:24:52 ok    acknowledge and review survived the restart
+21:24:52 ok    deliveries still delivered after restart
+21:24:52 ok    rule revision persisted
+21:24:52 ok    events left open by the killed core were cleared at startup (2 of 2)
+21:24:52 ok    operator actions in the audit log
+21:24:52 ok    the worker exited after the core was killed (stdin closed)
+21:25:14 analytics off and on: {'analyzing_while_off': False, 'detections_status_while_off': 404, 'off_s': 8, 'transitions_after_enable': ['became_pending'], 'stale_rows_after_enable': 0}
+21:25:14 ok    analytics off: camera not analysed, detections 404
+21:25:14 ok    rules evaluate known frames again after analytics is re-enabled
+21:25:16 clean shutdown: {'info_file': False, 'alive': False}
+21:25:16 ok    a clean core shutdown stopped the worker and its info file is gone
+21:25:16 PASS

@@ -2,11 +2,14 @@
 
 The model runs once per frame; boxes above the job threshold are filtered to
 the job's target classes and pushed through one ByteTrack instance per
-camera+session so the rule engine sees stable track ids across jobs. A job
-stops feeding frames once limits.deadline_ms has elapsed since the worker
-accepted it and reports what it finished as partial. Torch,
-rfdetr, supervision and PIL are imported lazily so the module can be imported
-and unit-tested without them.
+camera+session so the rule engine sees stable track ids across jobs, including
+a stream of single-frame jobs. A job stops feeding frames once
+limits.deadline_ms has elapsed since the worker accepted it and reports what it
+finished as partial. The model is traced with torch.jit in float32, which
+gives the eager model's boxes and scores with less per-op Python dispatch (the
+main cost on MPS when the CPU is busy); FOVEA_DETECTOR_TRACE=0 keeps it eager.
+Torch, rfdetr, supervision and PIL are imported lazily so the module can be
+imported and unit-tested without them.
 """
 from __future__ import annotations
 
@@ -17,14 +20,17 @@ import warnings
 from typing import Any, Callable
 
 from ..clock import mono_ns
-from ..protocol import Job, Result
-from ..tracking import RawDetection, TrackerRegistry, build_detection_frame, derive_fps, sort_frames
+from ..protocol import DETECT_DEFAULT_THRESHOLD, Job, Result
+from ..tracking import RawDetection, TrackerRegistry, build_detection_frame, sort_frames
 
 MODEL_VARIANTS = {"nano": "RFDETRNano", "small": "RFDETRSmall"}
 DEFAULT_VARIANT = os.environ.get("FOVEA_DETECTOR_MODEL", "nano")
 TRACK_ACTIVATION_THRESHOLD = float(os.environ.get("FOVEA_TRACK_ACTIVATION", "0.25"))
 LOST_TRACK_BUFFER = int(os.environ.get("FOVEA_TRACK_LOST_BUFFER", "30"))
 MINIMUM_MATCHING_THRESHOLD = float(os.environ.get("FOVEA_TRACK_MATCH_THRESHOLD", "0.8"))
+BOX_BUFFER = float(os.environ.get("FOVEA_TRACK_BOX_BUFFER", "0.3"))
+WARMUP_SIZE = (960, 540)
+TRACE_MODEL = os.environ.get("FOVEA_DETECTOR_TRACE", "1") != "0"
 
 
 def pick_device() -> str:
@@ -61,6 +67,16 @@ class ByteTrackAdapter:
     updated this frame carries the matched detection's score, so the mapping
     below uses score equality first (IoU as tie-break) and falls back to IoU
     gated at the tracker's own matching threshold.
+
+    Boxes enter the tracker padded by BOX_BUFFER of their width and height on
+    each side (buffered IoU). ByteTrack confirms a new track only if its second
+    detection overlaps the first by IoU x score >= 0.3, which a person shifting
+    in a seat or walking often misses at 2 fps; padding keeps that overlap. The
+    reported boxes are the unpadded detections.
+
+    ByteTrack starts a track only from a detection at or above its det_thresh
+    (track_activation_threshold + 0.1 by default); set_threshold lowers both to
+    the job threshold, so every reported detection can carry a track id.
     """
 
     def __init__(self, fps: float) -> None:
@@ -75,10 +91,17 @@ class ByteTrackAdapter:
                 minimum_matching_threshold=MINIMUM_MATCHING_THRESHOLD,
                 frame_rate=fps,
             )
+        self.set_fps(fps)
 
     def set_fps(self, fps: float) -> None:
+        # supervision truncates frame_rate / 30 * buffer; a rate measured from jittered pts gaps (1.99 at a
+        # nominal 2 fps) would then lose a whole frame of the lost-track buffer, so round to the nearest frame.
         self.fps = fps
-        self.tracker.max_time_lost = int(fps / 30.0 * LOST_TRACK_BUFFER)
+        self.tracker.max_time_lost = int(fps / 30.0 * LOST_TRACK_BUFFER + 0.5)
+
+    def set_threshold(self, threshold: float) -> None:
+        self.tracker.track_activation_threshold = min(TRACK_ACTIVATION_THRESHOLD, threshold)
+        self.tracker.det_thresh = threshold
 
     def lost_window_ns(self) -> int:
         # ByteTrack drops a lost track after the update in which frames since its last match exceed
@@ -93,6 +116,10 @@ class ByteTrackAdapter:
 
         n = len(detections)
         tensors = np.array([[d.x1, d.y1, d.x2, d.y2, d.confidence] for d in detections], dtype=np.float32).reshape(n, 5)
+        if BOX_BUFFER > 0:
+            pad = (tensors[:, 2:4] - tensors[:, 0:2]) * BOX_BUFFER
+            tensors[:, 0:2] -= pad
+            tensors[:, 2:4] += pad
         tracks = self.tracker.update_with_tensors(tensors)
         ids: list[str | None] = [None] * n
         if not tracks or n == 0:
@@ -141,12 +168,29 @@ class RfDetrTracker:
 
     def _build(self, device: str) -> None:
         import rfdetr
+        import torch
 
         model_cls = getattr(rfdetr, MODEL_VARIANTS[self.variant])
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", FutureWarning)
-            self.model = model_cls(device=device)
+            warnings.simplefilter("ignore", torch.jit.TracerWarning)
+            model = model_cls(device=device)
+            if TRACE_MODEL:
+                try:
+                    model.inference(compile=True)
+                except Exception as e:
+                    self.notes.append(f"torch.jit trace failed on {device}, running eager: {type(e).__name__}: {str(e)[:200]}")
+        self.model = model
         self.device = device
+
+    def warmup(self) -> None:
+        """One inference on a blank frame so the first real job does not pay for kernel compilation."""
+        from PIL import Image
+
+        with self.lock:
+            if self.model is None:
+                self.load()
+            self._predict_with_fallback(Image.new("RGB", WARMUP_SIZE), DETECT_DEFAULT_THRESHOLD)
 
     def _load_image(self, path: str) -> tuple[Any, int, int]:
         from PIL import Image
@@ -195,9 +239,10 @@ class RfDetrTracker:
         errors: list[str] = []
         out_frames = []
         per_frame_ms: list[int] = []
-        entry, tracker_note = self.registry.acquire(key, frames[0].pts_ns, derive_fps(frames))
+        entry, tracker_note = self.registry.acquire(key)
         if tracker_note:
             notes.append(f"tracker {key}: {tracker_note}")
+        entry.tracker.set_threshold(job.threshold)
         for i, frame in enumerate(frames):
             if self.clock() >= deadline_ns:
                 errors.append(f"deadline {job.limits.deadline_ms} ms exceeded after {i} of {len(frames)} frames")
@@ -208,14 +253,14 @@ class RfDetrTracker:
             except OSError as e:
                 errors.append(f"{frame.frame_id}: {e}")
                 continue
-            reset_note = self.registry.check_continuity(entry, frame.pts_ns)
-            if reset_note:
-                notes.append(f"tracker {key}: {reset_note} at {frame.frame_id}")
+            advance_note = self.registry.advance(entry, frame.pts_ns, job.max_gap_ns)
+            if advance_note:
+                notes.append(f"tracker {key}: {advance_note} at {frame.frame_id}")
             raws = [r for r in self._predict_with_fallback(image, job.threshold) if r.cls in target]
             track_ids = entry.track_ids(entry.tracker.update(raws))
             out_frames.append(build_detection_frame(frame, width, height, raws, track_ids))
             per_frame_ms.append(int((time.monotonic() - t1) * 1000))
-            self.registry.commit(key, frame.pts_ns)
+            self.registry.commit(entry, frame.pts_ns)
         status = "ok" if not errors else ("partial" if out_frames else "error")
         return Result(
             job_id=job.job_id,

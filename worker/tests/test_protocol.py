@@ -71,9 +71,12 @@ class DetectContractTest(unittest.TestCase):
         self.assertEqual(vlm.session_id, "")
 
     def test_job_overrides(self):
-        job = Job.from_dict(_detect_dict(threshold=0.5, target_classes=["person"]))
+        job = Job.from_dict(_detect_dict(threshold=0.5, target_classes=["person"], max_gap_ns=5e9))
         self.assertEqual(job.threshold, 0.5)
         self.assertEqual(job.target_classes, ["person"])
+        self.assertEqual(job.max_gap_ns, 5_000_000_000)
+        self.assertIsInstance(job.max_gap_ns, int)
+        self.assertEqual(_detect_job().max_gap_ns, 0)
 
     def test_rejects_detect_job_without_camera_or_session(self):
         for missing in ("camera_id", "session_id"):
@@ -93,6 +96,8 @@ class DetectContractTest(unittest.TestCase):
             "limits.max_frames": _detect_dict(limits={"max_frames": -3}),
             "limits.deadline_ms": _detect_dict(limits={"deadline_ms": -1}),
             "limits.max_new_tokens": _detect_dict(limits={"max_new_tokens": 1.5}),
+            "max_gap_ns": _detect_dict(max_gap_ns=-1),
+            "max_gap_ns ": _detect_dict(max_gap_ns=1.5),
             "target_classes": _detect_dict(target_classes=[]),
             "target_classes ": _detect_dict(target_classes="person"),
             "limits.max_frames is 2": _detect_dict(limits={"max_frames": 2}),

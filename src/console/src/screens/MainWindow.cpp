@@ -6,6 +6,8 @@
 #include "screens/MainTabBar.h"
 #include "screens/NotImplementedState.h"
 #include "screens/TitleBar.h"
+#include "screens/alerts/AlertsScreen.h"
+#include "screens/alerts/RulesRail.h"
 #include "screens/monitor/MonitorScreen.h"
 #include "theme/Tokens.h"
 #include <QAbstractSpinBox>
@@ -23,6 +25,7 @@
 #include <QTextEdit>
 #include <QVBoxLayout>
 #include <QWindow>
+#include <algorithm>
 
 namespace fovea::ui {
 namespace tk = tokens;
@@ -35,7 +38,8 @@ bool isTextInput(QWidget* w) {
 }
 
 MainWindow::MainWindow(QWidget* parent)
-    : QMainWindow(parent), launcher_(client_, this), poller_(client_, this) {
+    : QMainWindow(parent), launcher_(client_, this), poller_(client_, this), events_(client_, this),
+      dispatcher_(client_, events_, this), thumbnails_(client_, this) {
   setWindowFlags(Qt::Window | Qt::FramelessWindowHint);
   setWindowTitle(QStringLiteral("Fovea"));
   setMinimumSize(tk::size::windowMinWidth, tk::size::windowMinHeight);
@@ -49,12 +53,12 @@ MainWindow::MainWindow(QWidget* parent)
   tabBar_ = new MainTabBar(root);
   stack_ = new QStackedWidget(root);
   stack_->setObjectName(QStringLiteral("ScreenStack"));
-  monitor_ = new MonitorScreen(client_, stack_);
+  monitor_ = new MonitorScreen(client_, events_, stack_);
   stack_->addWidget(monitor_);
   stack_->addWidget(new NotImplementedState(QStringLiteral("Search is not implemented in this build."),
                                             QStringLiteral("ARRIVES WITH M4"), stack_));
-  stack_->addWidget(new NotImplementedState(QStringLiteral("Alerts & Analytics are not implemented in this build."),
-                                            QStringLiteral("ARRIVES WITH M3"), stack_));
+  alertsScreen_ = new AlertsScreen(client_, events_, thumbnails_, stack_);
+  stack_->addWidget(alertsScreen_);
   stack_->addWidget(new NotImplementedState(QStringLiteral("Model Train is not implemented in this build."),
                                             QStringLiteral("ARRIVES AFTER M5"), stack_));
 
@@ -73,7 +77,10 @@ MainWindow::MainWindow(QWidget* parent)
 
   connect(&launcher_, &CoreLauncher::stateChanged, this, [this](CoreLauncher::State state, const QString& message) {
     monitor_->setServiceState(state, message);
-    poller_.setActive(state == CoreLauncher::State::Ready);
+    const bool ready = state == CoreLauncher::State::Ready;
+    poller_.setActive(ready);
+    events_.setActive(ready);
+    dispatcher_.setActive(ready);
     if (state != CoreLauncher::State::Ready) monitor_->markStatusesStale();
   });
   connect(&poller_, &StatusPoller::snapshot, this, &MainWindow::onSnapshot);
@@ -83,6 +90,14 @@ MainWindow::MainWindow(QWidget* parent)
   connect(monitor_, &MonitorScreen::addCameraRequested, this, [this] { openCameraDialog(QString()); });
   connect(monitor_, &MonitorScreen::cameraSettingsRequested, this, &MainWindow::openCameraDialog);
   connect(monitor_, &MonitorScreen::playbackRequested, this, &MainWindow::openPlayback);
+  connect(monitor_, &MonitorScreen::openCaseRequested, this, &MainWindow::openEventInAlerts);
+  connect(monitor_, &MonitorScreen::manageRulesRequested, this, [this] { tabBar_->tabs()->setCurrentIndex(kAlertsTab); });
+  connect(&dispatcher_, &AlertDispatcher::popCameraRequested, monitor_, &MonitorScreen::popCamera);
+  connect(&events_, &EventStore::eventsChanged, this, [this] {
+    tabBar_->tabs()->setBadge(kAlertsTab, events_.unresolvedCount());
+    openScreenshotView();
+  });
+  connect(&events_, &EventStore::rulesChanged, this, &MainWindow::openScreenshotView);
 
   dialogs_ = new DialogHost(this);
   connect(dialogs_, &DialogHost::opened, this, [this] { centralWidget()->setEnabled(false); });
@@ -95,11 +110,13 @@ MainWindow::MainWindow(QWidget* parent)
 // Dialogs talk to client_, a member destroyed before QObject deletes child widgets.
 MainWindow::~MainWindow() { dialogs_->shutdown(); }
 
-// Closing a dialog issues requests (DELETE /v1/playback/{id}); they need the event loop, which
-// is gone by the time the destructor runs.
+// Closing a dialog or hiding the evidence player issues requests (DELETE /v1/playback/{id}); they
+// need the event loop, which is gone by the time the destructor runs, and the window hides its
+// screens only after this handler returns.
 void MainWindow::closeEvent(QCloseEvent* event) {
   poller_.setActive(false);
   dialogs_->shutdown();
+  stack_->hide();
   client_.drain(kExitDrainMs);
   QMainWindow::closeEvent(event);
 }
@@ -107,7 +124,13 @@ void MainWindow::closeEvent(QCloseEvent* event) {
 void MainWindow::onSnapshot(const QVector<fovea::Camera>& cameras, const QVector<fovea::CameraStatus>& statuses) {
   cameras_ = cameras;
   monitor_->setSnapshot(cameras, statuses);
+  alertsScreen_->setSnapshot(cameras, statuses);
   openScreenshotView();
+}
+
+void MainWindow::openEventInAlerts(const QString& eventId) {
+  tabBar_->tabs()->setCurrentIndex(kAlertsTab);
+  alertsScreen_->openEvent(eventId);
 }
 
 CameraSettingsDialog* MainWindow::openCameraDialog(const QString& cameraId) {
@@ -130,6 +153,14 @@ void MainWindow::openPlayback(const fovea::RecordingSegment& segment, const QStr
 
 void MainWindow::openScreenshotView() {
   if (screenshotView_.isEmpty() || screenshotViewOpened_ || cameras_.isEmpty()) return;
+  const QStringList alertViews{QStringLiteral("alerts"), QStringLiteral("alert-detail"), QStringLiteral("rule-editor"),
+                               QStringLiteral("monitor-feed")};
+  if (alertViews.contains(screenshotView_)) {
+    if (!events_.eventsAnswered() || !events_.rulesAnswered()) return;
+    screenshotViewOpened_ = true;
+    openAlertsScreenshotView();
+    return;
+  }
   screenshotViewOpened_ = true;
   const fovea::Camera first = cameras_.first();
   if (screenshotView_ == QLatin1StringView("camera-dialog")) {
@@ -156,6 +187,24 @@ void MainWindow::openScreenshotView() {
       return;
     }
   }, this);
+}
+
+void MainWindow::openAlertsScreenshotView() {
+  if (screenshotView_ == QLatin1StringView("monitor-feed")) {
+    monitor_->setOverlaysEnabled(true);
+    return;
+  }
+  tabBar_->tabs()->setCurrentIndex(kAlertsTab);
+  if (screenshotView_ == QLatin1StringView("rule-editor")) {
+    if (!events_.rules().isEmpty()) alertsScreen_->rules()->editRule(events_.rules().first().id);
+    return;
+  }
+  if (screenshotView_ != QLatin1StringView("alert-detail") || events_.events().isEmpty()) return;
+  const QVector<EventInfo>& events = events_.events();
+  const auto playable = std::find_if(events.begin(), events.end(), [](const EventInfo& e) {
+    return e.evidence && e.evidence->state == QLatin1StringView("available");
+  });
+  alertsScreen_->openEvent(playable != events.end() ? playable->id : events.first().id);
 }
 
 void MainWindow::resizeEvent(QResizeEvent* event) {

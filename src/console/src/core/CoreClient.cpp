@@ -79,7 +79,7 @@ void CoreClient::request(const QByteArray& verb, const QString& path, const QJso
   if (!ensureEndpoint(discoveryError)) {
     QPointer<QObject> guard(ctx);
     QTimer::singleShot(0, this, [cb = std::move(cb), guard, discoveryError] {
-      if (guard) cb(Response{Failure::NoDiscovery, QJsonDocument(), discoveryError});
+      if (guard) cb(Response{Failure::NoDiscovery, QJsonDocument(), discoveryError, QByteArray()});
     });
     return;
   }
@@ -96,7 +96,8 @@ void CoreClient::request(const QByteArray& verb, const QString& path, const QJso
     const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
     QJsonParseError parseError{};
     Response response;
-    response.doc = QJsonDocument::fromJson(reply->readAll(), &parseError);
+    response.body = reply->readAll();
+    response.doc = QJsonDocument::fromJson(response.body, &parseError);
     if (parseError.error != QJsonParseError::NoError) response.doc = QJsonDocument();
     response.failure = classify(netError);
     if (response.failure != Failure::None) {
@@ -195,6 +196,76 @@ void CoreClient::closePlayback(const QString& id, Callback cb, QObject* context)
 
 void CoreClient::metrics(Callback cb, QObject* context) {
   send("GET", QStringLiteral("/v1/metrics"), {}, std::move(cb), context);
+}
+
+void CoreClient::listZones(Callback cb, QObject* context) {
+  send("GET", QStringLiteral("/v1/zones"), {}, std::move(cb), context);
+}
+
+void CoreClient::createZone(const QJsonObject& zone, Callback cb, QObject* context) {
+  send("POST", QStringLiteral("/v1/zones"), QJsonDocument(zone), std::move(cb), context);
+}
+
+void CoreClient::updateZone(const QString& id, const QJsonObject& zone, Callback cb, QObject* context) {
+  send("PUT", QStringLiteral("/v1/zones/%1").arg(id), QJsonDocument(zone), std::move(cb), context);
+}
+
+void CoreClient::listRules(Callback cb, QObject* context) {
+  send("GET", QStringLiteral("/v1/rules"), {}, std::move(cb), context);
+}
+
+void CoreClient::createRule(const QJsonObject& revision, Callback cb, QObject* context) {
+  send("POST", QStringLiteral("/v1/rules"), QJsonDocument(revision), std::move(cb), context);
+}
+
+void CoreClient::updateRule(const QString& id, const QJsonObject& revision, Callback cb, QObject* context) {
+  send("PUT", QStringLiteral("/v1/rules/%1").arg(id), QJsonDocument(revision), std::move(cb), context);
+}
+
+void CoreClient::setRuleEnabled(const QString& id, bool enabled, Callback cb, QObject* context) {
+  const QString action = enabled ? QStringLiteral("enable") : QStringLiteral("disable");
+  send("POST", QStringLiteral("/v1/rules/%1/%2").arg(id, action), {}, std::move(cb), context);
+}
+
+void CoreClient::listEvents(int64_t fromUtcMs, int limit, Callback cb, QObject* context) {
+  QUrlQuery q;
+  q.addQueryItem(QStringLiteral("from_utc_ms"), QString::number(fromUtcMs));
+  q.addQueryItem(QStringLiteral("limit"), QString::number(limit));
+  send("GET", QStringLiteral("/v1/events?%1").arg(q.query()), {}, std::move(cb), context);
+}
+
+void CoreClient::getEvent(const QString& id, Callback cb, QObject* context) {
+  send("GET", QStringLiteral("/v1/events/%1").arg(id), {}, std::move(cb), context);
+}
+
+void CoreClient::eventCounts(Callback cb, QObject* context) {
+  send("GET", QStringLiteral("/v1/events/counts"), {}, std::move(cb), context);
+}
+
+void CoreClient::eventAction(const QString& id, const QString& action, const QJsonObject& body, Callback cb,
+                             QObject* context) {
+  send("POST", QStringLiteral("/v1/events/%1/%2").arg(id, action),
+       body.isEmpty() ? QJsonDocument() : QJsonDocument(body), std::move(cb), context);
+}
+
+void CoreClient::pendingAlerts(const QString& consoleId, Callback cb, QObject* context) {
+  QUrlQuery q;
+  q.addQueryItem(QStringLiteral("console_id"), consoleId);
+  send("GET", QStringLiteral("/v1/alerts/pending?%1").arg(q.query()), {}, std::move(cb), context);
+}
+
+void CoreClient::confirmAlert(const QString& deliveryId, const QString& consoleId, Callback cb, QObject* context) {
+  send("POST", QStringLiteral("/v1/alerts/%1/delivered").arg(deliveryId), QJsonDocument(QJsonObject{{"console_id", consoleId}}),
+       std::move(cb), context);
+}
+
+void CoreClient::latestDetections(const QString& cameraId, Callback cb, QObject* context) {
+  send("GET", QStringLiteral("/v1/cameras/%1/detections/latest").arg(cameraId), {}, std::move(cb), context);
+}
+
+void CoreClient::evidenceThumbnail(const QString& evidenceId, BytesCallback cb, QObject* context) {
+  request("GET", QStringLiteral("/v1/evidence/%1/thumbnail").arg(evidenceId), {}, kTimeoutMs,
+          [cb = std::move(cb)](const Response& r) { cb(r.failure == Failure::None, r.body, r.error); }, context);
 }
 
 void CoreClient::shutdownService(Callback cb, QObject* context) {

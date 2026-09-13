@@ -5,14 +5,22 @@ import contextlib
 import json
 import os
 import secrets
+import signal
 import sys
+import threading
 import time
 from collections import Counter
 from pathlib import Path
 
+from . import bench_serve
 from .backends import DETECTOR_BACKENDS, VLM_BACKENDS, load_backend, load_detector
 from .protocol import DETECT_DEFAULT_THRESHOLD, Job, Result, validate_result_against_job
-from .server import serve
+from .server import DETECT_LANE, serve
+from .stats import percentile
+
+STOP_SIGNALS = ("SIGTERM", "SIGINT", "SIGBREAK")
+STOP_POLL_S = 0.2
+STOP_GRACE_S = 5.0
 
 
 def _frames_from_dir(directory: Path, fps: float) -> list[dict]:
@@ -64,12 +72,6 @@ def _detect_summary(result: Result) -> dict:
 def _stdout_to_stderr():
     """Model libraries log INFO lines to stdout; keep stdout for the JSON result."""
     return contextlib.redirect_stdout(sys.stderr)
-
-
-def _percentile(values: list[int], pct: float) -> int:
-    ordered = sorted(values)
-    rank = max(0, min(len(ordered) - 1, round(pct / 100 * (len(ordered) - 1))))
-    return ordered[rank]
 
 
 def cmd_analyze(args: argparse.Namespace) -> int:
@@ -157,8 +159,8 @@ def cmd_bench_detect(args: argparse.Namespace) -> int:
         "load_ms": load_ms,
         "first_frame_ms": first_frame_ms,
         "warmup_ms": load_ms + first_frame_ms,
-        "p50_ms": _percentile(latencies, 50) if latencies else None,
-        "p95_ms": _percentile(latencies, 95) if latencies else None,
+        "p50_ms": percentile(latencies, 50),
+        "p95_ms": percentile(latencies, 95),
         "mean_ms": round(total_ms / len(latencies), 1) if latencies else None,
         "fps": round(len(latencies) * 1000 / total_ms, 2) if total_ms else None,
         "contract_violations": violations,
@@ -169,26 +171,78 @@ def cmd_bench_detect(args: argparse.Namespace) -> int:
     return 0 if not violations else 1
 
 
+def write_info_file(path: Path, info: dict) -> None:
+    """Write through a temporary file in the same directory and rename, so readers never see a partial file."""
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+    tmp.write_text(json.dumps(info), encoding="utf-8")
+    os.replace(tmp, path)
+
+
+def remove_info_file(path: Path, pid: int) -> None:
+    """Remove the info file unless another worker has replaced it since."""
+    try:
+        if json.loads(path.read_text(encoding="utf-8")).get("pid") == pid:
+            path.unlink()
+    except (OSError, ValueError):
+        pass
+
+
+def _install_stop_handlers(stop: threading.Event) -> None:
+    def handler(signum, frame):
+        stop.set()
+
+    for name in STOP_SIGNALS:
+        signum = getattr(signal, name, None)
+        if signum is not None:
+            signal.signal(signum, handler)
+
+
+def _set_on_stdin_eof(stop: threading.Event) -> None:
+    # Reads the raw descriptor: a daemon thread parked inside sys.stdin.buffer holds its lock and aborts
+    # interpreter shutdown.
+    try:
+        fd = sys.stdin.fileno()
+        while os.read(fd, 4096):
+            pass
+    except (AttributeError, OSError, ValueError):
+        pass
+    stop.set()
+
+
 def cmd_serve(args: argparse.Namespace) -> int:
+    started_utc_ms = int(time.time() * 1000)
     token = args.token or os.environ.get("FOVEA_WORKER_TOKEN") or ""
     if args.token_file:
-        token = Path(args.token_file).read_text().strip()
+        token = Path(args.token_file).read_text(encoding="utf-8").strip()
     if not token:
         print("a token is required (--token, --token-file or FOVEA_WORKER_TOKEN)", file=sys.stderr)
         return 2
+    stop = threading.Event()
+    _install_stop_handlers(stop)
     backend = load_backend(args.backend)
     detector = load_detector(args.detector)
     server = serve(backend, "127.0.0.1", args.port, token, detector=detector)
-    port = server.server_address[1]
-    info = {"port": port, "pid": os.getpid(), "backend": backend.name, "model": backend.version,
-            "detector": detector.name, "detector_model": detector.version}
-    if args.info_file:
-        Path(args.info_file).write_text(json.dumps(info))
+    threading.Thread(target=server.serve_forever, kwargs={"poll_interval": STOP_POLL_S}, name="http", daemon=True).start()
+    pid = os.getpid()
+    info = {"port": server.server_address[1], "pid": pid, "backend": backend.name, "model": backend.version,
+            "detector": detector.name, "detector_model": detector.version, "started_utc_ms": started_utc_ms}
+    info_file = Path(args.info_file) if args.info_file else None
+    if info_file is not None:
+        write_info_file(info_file, info)
     print(json.dumps(info), flush=True)
-    try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        pass
+    with _stdout_to_stderr():
+        if args.exit_on_stdin_eof:
+            threading.Thread(target=_set_on_stdin_eof, args=(stop,), name="stdin", daemon=True).start()
+        if args.warmup:
+            threading.Thread(target=server.state.warm_up, args=(DETECT_LANE,), name="warmup", daemon=True).start()
+        while not stop.wait(STOP_POLL_S):
+            pass
+        server.shutdown()
+        server.server_close()
+        if not server.state.wait_idle(STOP_GRACE_S):
+            print(f"fovea-worker: jobs still running {STOP_GRACE_S:g} s after stop; exiting", file=sys.stderr)
+        if info_file is not None:
+            remove_info_file(info_file, pid)
     return 0
 
 
@@ -222,14 +276,18 @@ def main(argv: list[str] | None = None) -> int:
     _add_detect_args(b)
     b.add_argument("--repeat", type=int, default=2)
     b.set_defaults(func=cmd_bench_detect)
-    s = sub.add_parser("serve", help="serve the loopback job API")
+    s = sub.add_parser("serve", help="serve the loopback job API until SIGTERM, SIGINT or CTRL_BREAK")
     s.add_argument("--backend", default="dry", choices=VLM_BACKENDS)
     s.add_argument("--detector", default="rfdetr", choices=DETECTOR_BACKENDS)
     s.add_argument("--port", type=int, default=0)
     s.add_argument("--token")
     s.add_argument("--token-file")
-    s.add_argument("--info-file")
+    s.add_argument("--info-file", help="written atomically once the socket is bound; removed on a clean exit")
+    s.add_argument("--warmup", action="store_true", help="load the detector and run one inference right after binding")
+    s.add_argument("--exit-on-stdin-eof", action="store_true",
+                   help="stop when stdin reaches end of file, so a parent holding the write end ties our lifetime to its own")
     s.set_defaults(func=cmd_serve)
+    bench_serve.add_parser(sub)
     args = p.parse_args(argv)
     return args.func(args)
 

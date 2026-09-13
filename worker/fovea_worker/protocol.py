@@ -7,6 +7,9 @@ ranges that were present in the request; the core rejects anything else.
 Detection results (kind "detect_frames") report one DetectionFrame per input
 frame. Boxes and anchors are normalized to the frame size (0..1) so the rule
 engine can compare them with zone polygons without knowing the pixel size.
+A detect_frames job may carry threshold (the lowest confidence reported, and
+the lowest that starts a track) and max_gap_ns (the longest pts gap the
+camera's rules bridge; the tracker keeps its ids across gaps up to it).
 """
 from __future__ import annotations
 
@@ -75,6 +78,16 @@ def _threshold(value: Any) -> float:
     return float(value)
 
 
+def _max_gap_ns(value: Any) -> int:
+    if value is None:
+        return 0
+    if isinstance(value, float) and value.is_integer():
+        value = int(value)
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise ValueError(f"max_gap_ns must be a non-negative integer, got {value!r}")
+    return value
+
+
 def _target_classes(value: Any) -> list[str]:
     if value is None:
         return list(DETECT_TARGET_CLASSES)
@@ -109,6 +122,7 @@ class Job:
     session_id: str = ""
     threshold: float = DETECT_DEFAULT_THRESHOLD
     target_classes: list[str] = field(default_factory=lambda: list(DETECT_TARGET_CLASSES))
+    max_gap_ns: int = 0
     # Worker-side receive time on fovea_worker.clock.mono_ns(); 0 when the job did not come through the server.
     accepted_mono_ns: int = 0
 
@@ -155,6 +169,7 @@ class Job:
             session_id=session_id,
             threshold=_threshold(d.get("threshold")),
             target_classes=_target_classes(d.get("target_classes")),
+            max_gap_ns=_max_gap_ns(d.get("max_gap_ns")),
         )
 
 

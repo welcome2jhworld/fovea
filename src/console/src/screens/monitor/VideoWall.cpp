@@ -57,6 +57,7 @@ void VideoWall::setSnapshot(const QVector<fovea::Camera>& cameras, const QVector
     VideoTile* tile = tiles_.value(c.id, nullptr);
     if (!tile) {
       tile = new VideoTile(this);
+      tile->setOverlaysEnabled(overlays_);
       tile->hide();
       connect(tile, &VideoTile::maximizeToggled, this, &VideoWall::toggleMaximize);
       tiles_.insert(c.id, tile);
@@ -82,6 +83,22 @@ void VideoWall::setSnapshot(const QVector<fovea::Camera>& cameras, const QVector
     order_ = order;
     arrange();
   }
+}
+
+QStringList VideoWall::visibleCameraIds() const { return visible_; }
+
+void VideoWall::setOverlaysEnabled(bool enabled) {
+  overlays_ = enabled;
+  for (VideoTile* tile : std::as_const(tiles_)) tile->setOverlaysEnabled(enabled);
+}
+
+void VideoWall::popToFirstSlot(const QString& cameraId) {
+  const qsizetype from = order_.indexOf(cameraId);
+  if (from < 0) return;
+  if (!maximizedId_.isEmpty() && maximizedId_ != cameraId) maximizedId_ = cameraId;
+  if (from > 0) order_.swapItemsAt(0, from);
+  preferredOrder_ = order_;
+  arrange();
 }
 
 void VideoWall::toggleMaximize(VideoTile* tile) {
@@ -132,26 +149,32 @@ void VideoWall::arrange() {
     grid_->setRowStretch(i, i < columns ? 1 : 0);
   }
 
+  QStringList visible;
   for (VideoTile* tile : tiles_) tile->setDragEnabled(maximizedId_.isEmpty());
   if (!maximizedId_.isEmpty()) {
     VideoTile* tile = tiles_.value(maximizedId_);
     grid_->addWidget(tile, 0, 0);
     tile->show();
-    return;
-  }
-
-  const int slotCount = columns * columns;
-  int emptyIndex = 0;
-  for (int i = 0; i < slotCount; ++i) {
-    QWidget* w = nullptr;
-    if (i < order_.size()) {
-      w = tiles_.value(order_[i]);
-    } else {
-      if (emptyIndex >= empties_.size()) empties_.push_back(new EmptySlot(this));
-      w = empties_[emptyIndex++];
+    visible.push_back(maximizedId_);
+  } else {
+    const int slotCount = columns * columns;
+    int emptyIndex = 0;
+    for (int i = 0; i < slotCount; ++i) {
+      QWidget* w = nullptr;
+      if (i < order_.size()) {
+        w = tiles_.value(order_[i]);
+        visible.push_back(order_[i]);
+      } else {
+        if (emptyIndex >= empties_.size()) empties_.push_back(new EmptySlot(this));
+        w = empties_[emptyIndex++];
+      }
+      grid_->addWidget(w, i / columns, i % columns);
+      w->show();
     }
-    grid_->addWidget(w, i / columns, i % columns);
-    w->show();
+  }
+  if (visible != visible_) {
+    visible_ = visible;
+    emit visibleCamerasChanged();
   }
 }
 

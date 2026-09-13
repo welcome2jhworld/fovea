@@ -5,8 +5,9 @@ cameras, search recordings in natural language, and get alerts for rules you
 define, each with the evidence clip. Everything runs on one machine: no cloud
 service, no remote video upload, no internet connection required at runtime.
 
-**Status: early development.** The live view and recording path works end to
-end. Rules, search and the VLM features are being built milestone by milestone.
+**Status: early development.** Live view, recording, retention and the first
+rule (person in a zone) with alerts and evidence clips work end to end. Search
+and the VLM features are being built milestone by milestone.
 See [docs/STATUS.md](docs/STATUS.md) for what is verified today and
 [docs/PLAN.md](docs/PLAN.md) for the plan.
 
@@ -17,11 +18,24 @@ See [docs/STATUS.md](docs/STATUS.md) for what is verified today and
 - Continuous recording in 10-600 s Matroska segments without re-encoding,
   crash-safe (a killed process leaves a playable file), startup recovery.
 - Playback of recorded segments.
+- Headless recording: closing the console keeps the service recording; four
+  cameras at 25 fps verified with a 5 and a 10 minute soak, crash restart and a
+  disk floor that pauses recording but keeps live view.
+- Retention per camera by age (`retention_days`) and size (`max_bytes`), plus
+  oldest-first deletion when the disk runs low; segments referenced by an
+  event's evidence are held.
+- Person detection and tracking (RF-DETR Nano + ByteTrack) in a supervised
+  worker process that restarts on failure; frames without a result count as
+  unknown, never as empty.
+- Rules: "a person stays inside a zone for N seconds during a schedule", with
+  one event per occupancy, clear and rearm, console alerts (live event feed,
+  sound, optional jump to the camera), an evidence clip and thumbnail per
+  event, and acknowledge, resolve and review saved in the local database.
+  Detection boxes on live tiles.
 - Local RTSP test source (test pattern, video file loop, or this machine's
   webcam) for trying everything without a camera.
 
-In progress: person-in-zone rule with evidence clips and alerts (M3), 4-camera
-soak and retention (M2), natural-language search (M4).
+In progress: natural-language search (M4), Windows verification of M2 and M3.
 
 ## Try it on Windows (x64)
 
@@ -89,7 +103,7 @@ Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md),
 [docs/API.md](docs/API.md), [docs/DATA_CONTRACTS.md](docs/DATA_CONTRACTS.md),
 [docs/M3_DESIGN.md](docs/M3_DESIGN.md), [docs/DECISIONS.md](docs/DECISIONS.md).
 
-## Model worker (optional today)
+## Model worker (needed for detection and rules)
 
 ```
 ./scripts/setup-worker.sh torch        # macOS/Linux; mlx extra for Apple silicon
@@ -109,6 +123,10 @@ for ids, sizes and licenses.
 - `scripts/verify_m1.py`: integration run against real binaries
   (source -> core -> frames -> segments -> reconnect -> playback -> recovery).
   CI runs it on Windows against the packaged zip and on macOS.
+- `scripts/verify_m2.py`: 4-input soak, kill -9 recovery, console closed,
+  disk floor and retention.
+- `scripts/verify_m3.py --seated <clip> [--walking <clip>]`: zone rule, events,
+  worker kill, evidence and review against the real detector worker.
 
 ## Security notes
 

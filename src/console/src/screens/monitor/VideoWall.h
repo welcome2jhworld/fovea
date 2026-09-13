@@ -30,6 +30,15 @@ public:
   WallLayout wallLayout() const { return layout_; }
   bool isTileMaximized() const { return !maximizedId_.isEmpty(); }
   void setSnapshot(const QVector<fovea::Camera>& cameras, const QVector<fovea::CameraStatus>& statuses);
+  // Cameras whose tiles are on screen, in slot order.
+  QStringList visibleCameraIds() const;
+  VideoTile* tile(const QString& cameraId) const { return tiles_.value(cameraId, nullptr); }
+  void setOverlaysEnabled(bool enabled);
+  // Alert action "pop camera to main view": the camera swaps into the first slot.
+  void popToFirstSlot(const QString& cameraId);
+
+signals:
+  void visibleCamerasChanged();
 
 protected:
   void dragEnterEvent(QDragEnterEvent* event) override;
@@ -48,6 +57,8 @@ private:
   QVector<EmptySlot*> empties_;
   WallLayout layout_ = WallLayout::ThreeByThree;
   QString maximizedId_;
+  QStringList visible_;
+  bool overlays_ = false;
 };
 
 }

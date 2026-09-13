@@ -1,7 +1,10 @@
 #pragma once
+#include "core/AlertDispatcher.h"
 #include "core/CoreClient.h"
 #include "core/CoreLauncher.h"
+#include "core/EventStore.h"
 #include "core/StatusPoller.h"
+#include "core/ThumbnailCache.h"
 #include "fovea/Api.h"
 #include <QMainWindow>
 #include <QPoint>
@@ -12,6 +15,7 @@ class QStackedWidget;
 
 namespace fovea::ui {
 
+class AlertsScreen;
 class CameraSettingsDialog;
 class DialogHost;
 class MainTabBar;
@@ -24,8 +28,9 @@ public:
   explicit MainWindow(QWidget* parent = nullptr);
   ~MainWindow() override;
 
-  // Test hook: "camera-dialog", "camera-dialog-test", "camera-dialog-test-fail" or
-  // "playback" opens that dialog once cameras arrive.
+  // Test hook: "camera-dialog", "camera-dialog-test", "camera-dialog-test-fail" or "playback"
+  // opens that dialog once cameras arrive; "alerts", "alert-detail", "rule-editor" and
+  // "monitor-feed" open those views once rules and events arrive too.
   void setScreenshotView(const QString& view) { screenshotView_ = view; }
 
 protected:
@@ -39,6 +44,7 @@ protected:
 private:
   static constexpr int kResizeGrip = 6;
   static constexpr int kExitDrainMs = 1500;
+  static constexpr int kAlertsTab = 2;
   Qt::Edges edgesAt(const QPoint& pos) const;
   void toggleMaximized();
   void confirmStopService();
@@ -46,14 +52,20 @@ private:
   CameraSettingsDialog* openCameraDialog(const QString& cameraId);
   void openPlayback(const fovea::RecordingSegment& segment, const QString& cameraLabel);
   void openScreenshotView();
+  void openAlertsScreenshotView();
+  void openEventInAlerts(const QString& eventId);
 
   CoreClient client_;
   CoreLauncher launcher_;
   StatusPoller poller_;
+  EventStore events_;
+  AlertDispatcher dispatcher_;
+  ThumbnailCache thumbnails_;
   TitleBar* titleBar_ = nullptr;
   MainTabBar* tabBar_ = nullptr;
   QStackedWidget* stack_ = nullptr;
   MonitorScreen* monitor_ = nullptr;
+  AlertsScreen* alertsScreen_ = nullptr;
   DialogHost* dialogs_ = nullptr;
   QVector<fovea::Camera> cameras_;
   QString screenshotView_;

@@ -1,16 +1,17 @@
 #include "fovea/core/CameraPipeline.h"
 #include "fovea/Clock.h"
+#include "fovea/core/AnalysisTap.h"
 #include "fovea/FrameRing.h"
 #include "fovea/Ids.h"
 #include "fovea/Redact.h"
 #include "fovea/core/MediaProbe.h"
 #include "fovea/core/SessionClock.h"
 #include "fovea/core/Store.h"
+#include "fovea/core/SystemStats.h"
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
 #include <QHash>
-#include <QStorageInfo>
 #include <QUrl>
 #include <gst/app/gstappsink.h>
 #include <gst/gst.h>
@@ -37,7 +38,7 @@ constexpr int64_t kFpsWindowNs = 1'000'000'000;
 constexpr int64_t kLatencyWindowNs = 2'000'000'000;
 constexpr int64_t kBitrateWindowNs = 2'000'000'000;
 constexpr int64_t kDiskCheckIntervalNs = 1'000'000'000;
-constexpr int64_t kDiskResumeHeadroomBytes = 16LL * 1024 * 1024;
+constexpr guint kViewQueueMaxBuffers = 5;
 constexpr size_t kPtsMapSize = 64;
 constexpr int64_t kConnectGraceMs = 2000;
 
@@ -193,12 +194,6 @@ QString demuxerForPath(const QString& path) {
   return QStringLiteral("qtdemux");
 }
 
-int64_t freeBytesAt(const QString& dir) {
-  QStorageInfo info(dir);
-  if (!info.isValid()) info = QStorageInfo(QFileInfo(dir).absolutePath());
-  return info.isValid() ? info.bytesAvailable() : -1;
-}
-
 LatencyStats percentiles(std::vector<int64_t>& samples) {
   LatencyStats out;
   if (samples.empty()) return out;
@@ -299,6 +294,7 @@ struct CameraPipeline::Run {
   int64_t startedMonoNs = 0;
   std::mutex ringMutex;
   std::unique_ptr<FrameRingWriter> ring;
+  std::shared_ptr<AnalysisTap> tap;
 
   QString recordDir;
   QString recordingState = QStringLiteral("disabled");
@@ -463,7 +459,8 @@ struct CameraPipeline::Run {
     }
 
     gst_util_set_object_arg(G_OBJECT(viewQueue), "leaky", "downstream");
-    g_object_set(viewQueue, "max-size-buffers", 5u, "max-size-time", static_cast<guint64>(0), "max-size-bytes", 0u, nullptr);
+    g_object_set(viewQueue, "max-size-buffers", kViewQueueMaxBuffers, "max-size-time", static_cast<guint64>(0), "max-size-bytes", 0u,
+                 nullptr);
     GstCaps* caps = bgraCaps(0, 0);
     g_object_set(capsFilter, "caps", caps, nullptr);
     gst_caps_unref(caps);
@@ -646,6 +643,7 @@ struct CameraPipeline::Run {
     // Keyed by running time: unlike the raw PTS, which a looping file repeats
     // on every pass, it never repeats within a session.
     int64_t recvMono = now;
+    int64_t utc = 0;
     if (timed) {
       std::lock_guard<std::mutex> lock(run->mutex);
       for (const RtMono& e : run->stats.ptsMap) {
@@ -654,6 +652,7 @@ struct CameraPipeline::Run {
           break;
         }
       }
+      if (run->stats.clock.started()) utc = run->stats.clock.utcForPts(rt);
     }
 
     FrameHeader header;
@@ -670,6 +669,9 @@ struct CameraPipeline::Run {
       std::lock_guard<std::mutex> lock(run->ringMutex);
       written = run->ring && run->ring->write(header, pixels, stride);
     }
+    if (timed && run->tap && run->tap->wants(now))
+      run->tap->offer(run->sessionId, rt, recvMono, utc, static_cast<int>(header.width), static_cast<int>(header.height), pixels,
+                      stride, now);
     gst_video_frame_unmap(&frame);
     const int64_t writeMono = monoNowNs();
 
@@ -709,9 +711,9 @@ struct CameraPipeline::Run {
 };
 
 CameraPipeline::CameraPipeline(Camera camera, std::optional<Credentials> credentials, Store& store, const CoreConfig& config,
-                               QObject* parent)
+                               std::shared_ptr<AnalysisTap> tap, QObject* parent)
     : QObject(parent), camera_(std::move(camera)), credentials_(std::move(credentials)), store_(store), config_(config),
-      mailbox_(std::make_shared<Mailbox>()), backoff_(1000, 30000, 2.0) {
+      tap_(std::move(tap)), mailbox_(std::make_shared<Mailbox>()), backoff_(1000, 30000, 2.0) {
   mailbox_->target = this;
   tickTimer_.setInterval(kTickMs);
   connect(&tickTimer_, &QTimer::timeout, this, &CameraPipeline::tick);
@@ -721,6 +723,10 @@ CameraPipeline::CameraPipeline(Camera camera, std::optional<Credentials> credent
     ++reconnects_;
     requestStart();
   });
+}
+
+QString CameraPipeline::ringName(const QString& cameraId, const QString& sessionId) {
+  return makeRingName(QStringLiteral("cam:%1:%2").arg(cameraId, sessionId));
 }
 
 CameraPipeline::~CameraPipeline() {
@@ -802,6 +808,7 @@ void CameraPipeline::startRun() {
   run->ringMaxHeight = config_.ringMaxHeight;
   run->sessionId = newId();
   run->sessionBytes = sessionIdBytes(run->sessionId);
+  run->tap = tap_;
   run->startedUtcMs = utcNowMs();
   run->startedMonoNs = monoNowNs();
   run->recordDir = config_.recordingsDir + QLatin1Char('/') + camera_.id;
@@ -816,7 +823,7 @@ void CameraPipeline::startRun() {
 
   // Named per session: a reader still mapped to the previous session's ring
   // sees a new name and reopens instead of freezing on an unlinked segment.
-  run->ring = FrameRingWriter::create(makeRingName(QStringLiteral("cam:%1:%2").arg(camera_.id, run->sessionId)),
+  run->ring = FrameRingWriter::create(ringName(camera_.id, run->sessionId),
                                       config_.ringSlots, config_.ringMaxWidth, config_.ringMaxHeight);
   if (!run->ring) qWarning("camera %s: cannot create frame ring", qPrintable(camera_.id));
 
@@ -908,9 +915,9 @@ void CameraPipeline::checkDiskFloor() {
 }
 
 bool CameraPipeline::refreshDiskPaused() {
-  const int64_t freeBytes = freeBytesAt(config_.recordingsDir + QLatin1Char('/') + camera_.id);
+  const int64_t freeBytes = freeDiskBytes(config_.recordingsDir + QLatin1Char('/') + camera_.id);
   if (freeBytes < 0) return diskPaused_;
-  const int64_t resumeBytes = config_.minFreeBytes + std::max(config_.minFreeBytes / 10, kDiskResumeHeadroomBytes);
+  const int64_t resumeBytes = config_.minFreeBytes + config_.diskHeadroomBytes();
   if (!diskPaused_ && freeBytes < config_.minFreeBytes) {
     diskPaused_ = true;
     qWarning("camera %s: free space %lld MB below floor %lld MB, recording paused", qPrintable(camera_.id),
@@ -1395,7 +1402,8 @@ QJsonObject CameraPipeline::metrics() const {
   const CameraStatus s = status();
   QJsonObject m{{"camera_id", camera_.id}, {"state", s.state}, {"session_id", s.sessionId},
                 {"fps_new", s.fpsNew}, {"latency_ms", s.latency.toJson()}, {"drops", static_cast<double>(s.drops)},
-                {"queue_depth", s.queueDepth}, {"reconnects", s.reconnects}, {"recording", s.recording},
+                {"queue_depth", s.queueDepth}, {"queue_max", static_cast<int>(kViewQueueMaxBuffers)},
+                {"reconnects", s.reconnects}, {"recording", s.recording},
                 {"stale", s.stale}, {"ring_bytes", static_cast<double>(ringBytes())}};
   if (!run_) return m;
   uint64_t bytes = 0, frames = 0, ringErrors = 0;

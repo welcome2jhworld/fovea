@@ -1,11 +1,16 @@
 #include "fovea/core/ApiServer.h"
+#include "ApiHttp.h"
 #include "fovea/Clock.h"
 #include "fovea/Ids.h"
 #include "fovea/Redact.h"
 #include "fovea/Token.h"
 #include "fovea/core/CameraManager.h"
+#include "fovea/core/AnalysisScheduler.h"
 #include "fovea/core/PlaybackManager.h"
+#include "fovea/core/RetentionManager.h"
+#include "fovea/core/RuleEngine.h"
 #include "fovea/core/Store.h"
+#include "fovea/core/WorkerSupervisor.h"
 #include <QFuture>
 #include <QHostAddress>
 #include <QHttpServerRequest>
@@ -19,28 +24,7 @@
 namespace fovea::core {
 namespace {
 
-using Status = QHttpServerResponse::StatusCode;
-
-QHttpServerResponse json(const QJsonObject& o, Status s = Status::Ok) { return QHttpServerResponse(o, s); }
-QHttpServerResponse json(const QJsonArray& a, Status s = Status::Ok) { return QHttpServerResponse(a, s); }
-QHttpServerResponse fail(Status s, const QString& code, const QString& message) {
-  return QHttpServerResponse(errorJson(code, message), s);
-}
-QHttpServerResponse unauthorized() { return fail(Status::Unauthorized, "unauthorized", "missing or invalid token"); }
-
-std::optional<QJsonObject> body(const QHttpServerRequest& req) {
-  QJsonParseError err{};
-  const QJsonDocument doc = QJsonDocument::fromJson(req.body(), &err);
-  if (err.error != QJsonParseError::NoError || !doc.isObject()) return std::nullopt;
-  return doc.object();
-}
-
-int64_t queryInt(const QHttpServerRequest& req, const char* key, int64_t def) {
-  const QString v = req.query().queryItemValue(QLatin1String(key));
-  bool ok = false;
-  const int64_t n = v.toLongLong(&ok);
-  return ok ? n : def;
-}
+using namespace http;
 
 std::optional<Credentials> credentialsFrom(const QJsonObject& o) {
   if (!o.contains("username") && !o.contains("password")) return std::nullopt;
@@ -55,9 +39,13 @@ QJsonObject cameraWithStatus(const Camera& c, const std::optional<CameraStatus>&
 
 }
 
-ApiServer::ApiServer(CameraManager& cameras, PlaybackManager& playback, Store& store, QString token, QObject* parent)
-    : QObject(parent), cameras_(cameras), playback_(playback), store_(store), token_(std::move(token)) {
+ApiServer::ApiServer(CameraManager& cameras, PlaybackManager& playback, RetentionManager& retention, Store& store,
+                     AnalyticsServices analytics, QString token, QObject* parent)
+    : QObject(parent), cameras_(cameras), playback_(playback), retention_(retention), store_(store), analytics_(analytics),
+      token_(std::move(token)) {
+  cpu_.sample(monoNowNs(), processCpuTimeNs());
   registerRoutes();
+  registerAnalyticsRoutes();
 }
 
 bool ApiServer::listen(quint16 port) {
@@ -148,6 +136,7 @@ void ApiServer::registerRoutes() {
     QString error;
     if (!cameras_.updateCamera(c, credentialsFrom(*b), &error)) return fail(Status::BadRequest, "invalid_camera", error);
     store_.appendAudit("api", "camera.update", id, redactUrl(c.mainUrl), utcNowMs());
+    if (b->contains("retention_days") || b->contains("max_bytes")) retention_.requestRun();
     return json(cameraWithStatus(*cameras_.camera(id), cameras_.status(id)));
   });
 
@@ -156,6 +145,7 @@ void ApiServer::registerRoutes() {
     QString error;
     if (!cameras_.deleteCamera(id, &error)) return fail(Status::NotFound, "not_found", error);
     store_.appendAudit("api", "camera.delete", id, QString(), utcNowMs());
+    analytics_.rules.onCameraDeleted(id);
     return QHttpServerResponse(Status::NoContent);
   });
 
@@ -276,9 +266,29 @@ void ApiServer::registerRoutes() {
   server_.route("/v1/metrics", Method::Get, [this](const QHttpServerRequest& req) {
     if (!authorized(req)) return unauthorized();
     QJsonObject m = cameras_.metrics();
+    QJsonArray withAnalysis;
+    for (const QJsonValue& v : m.value("cameras").toArray()) {
+      QJsonObject cam = v.toObject();
+      if (analytics_.scheduler.analyzing(cam.value("camera_id").toString()))
+        cam.insert("analysis", analytics_.scheduler.cameraJson(cam.value("camera_id").toString()));
+      withAnalysis.push_back(cam);
+    }
+    m.insert("cameras", withAnalysis);
+    m.insert("worker", analytics_.worker.toJson());
+    QJsonObject process = m.value("process").toObject();
+    const int64_t cpuNs = processCpuTimeNs();
+    process.insert("rss_bytes", static_cast<double>(processRssBytes()));
+    process.insert("cpu_percent", cpu_.sample(monoNowNs(), cpuNs));
+    process.insert("cpu_time_ms", static_cast<double>(cpuNs / 1'000'000));
+    m.insert("process", process);
     m.insert("playback_channels", playback_.openCount());
     m.insert("uptime_ms", static_cast<double>(utcNowMs() - startedUtcMs_));
     return json(m);
+  });
+
+  server_.route("/v1/storage", Method::Get, [this](const QHttpServerRequest& req) {
+    if (!authorized(req)) return unauthorized();
+    return json(retention_.storageJson());
   });
 
   server_.route("/v1/service/shutdown", Method::Post, [this](const QHttpServerRequest& req) {

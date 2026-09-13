@@ -1256,6 +1256,110 @@ private slots:
     QCOMPARE_ENUM(sim.known(60500, {"t2"}).transition, Transition::Triggered);
   }
 
+  void workerOutageDuringActiveKeepsEvent() {
+    Sim sim;
+    sim.trigger();
+    QVERIFY(allTransitions(sim.runUnknown(10500, 16000, 500), Transition::Unknown));
+    const Evaluation resumed = sim.known(16500, {"t1"});
+    QCOMPARE_ENUM(resumed.transition, Transition::None);
+    QCOMPARE_ENUM(resumed.after, ConditionState::Active);
+    QCOMPARE(sim.ev.openEventId(), std::optional<QString>(QStringLiteral("evt-1")));
+    QVERIFY(allTransitions(sim.run(17000, 26000, 500, {"t1"}), Transition::None));
+    const Evaluation still = sim.known(26500, {"t1"});
+    QCOMPARE_ENUM(still.transition, Transition::StillActive);
+    QCOMPARE(still.eventId, QStringLiteral("evt-1"));
+    QCOMPARE(sim.issued, 1);
+  }
+
+  void workerOutageThenAbsenceClearsFromResume() {
+    Sim sim;
+    sim.trigger();
+    sim.runUnknown(10500, 16000, 500);
+    const Evaluation away = sim.known(16500);
+    QCOMPARE_ENUM(away.transition, Transition::BecameClearing);
+    QCOMPARE(away.eventId, QStringLiteral("evt-1"));
+    QVERIFY(allTransitions(sim.run(17000, 21000, 500), Transition::None));
+    const Evaluation cleared = sim.known(21500);
+    QCOMPARE_ENUM(cleared.transition, Transition::Cleared);
+    QVERIFY(cleared.note.isEmpty());
+  }
+
+  void workerOutageDuringClearingCountsOnlyObservedAbsence() {
+    Sim sim;
+    sim.trigger();
+    QCOMPARE_ENUM(sim.leave(10500).transition, Transition::BecameClearing);
+    sim.run(11000, 11500, 500);
+    sim.runUnknown(12000, 20000, 500);
+    // 1 s of absence observed before the outage: clearing ends 4 s after it.
+    const auto waiting = sim.run(20500, 23500, 500);
+    QVERIFY(allTransitions(waiting, Transition::None));
+    QCOMPARE_ENUM(waiting.last().after, ConditionState::Clearing);
+    const Evaluation cleared = sim.known(24000);
+    QCOMPARE_ENUM(cleared.transition, Transition::Cleared);
+    QCOMPARE(cleared.eventId, QStringLiteral("evt-1"));
+    QVERIFY(cleared.note.isEmpty());
+  }
+
+  void outageAcrossSessionChangeKeepsEvent() {
+    Sim sim;
+    sim.trigger();
+    sim.startSession(QStringLiteral("s2"), 0);
+    QVERIFY(allTransitions(sim.runUnknown(0, 8000, 500), Transition::Unknown));
+    const Evaluation resumed = sim.known(8500, {"t1"});
+    QCOMPARE_ENUM(resumed.transition, Transition::None);
+    QCOMPARE_ENUM(resumed.after, ConditionState::Active);
+    QCOMPARE(sim.ev.openEventId(), std::optional<QString>(QStringLiteral("evt-1")));
+  }
+
+  void staleResultsCoverAnOutage() {
+    Sim sim;
+    sim.trigger();
+    for (int64_t atMs = 10500; atMs <= 16000; atMs += 500)
+      QCOMPARE_ENUM(sim.expired(atMs, {track("t1")}).transition, Transition::Stale);
+    const Evaluation resumed = sim.known(16500, {"t1"});
+    QCOMPARE_ENUM(resumed.transition, Transition::None);
+    QCOMPARE(sim.ev.openEventId(), std::optional<QString>(QStringLiteral("evt-1")));
+  }
+
+  void raisedGenerationFreezesTheDroppedSpan() {
+    Sim sim;
+    sim.trigger();
+    QCOMPARE_ENUM(sim.leave(10500).transition, Transition::BecameClearing);
+    sim.known(11000);
+    sim.ev.raiseGeneration(2);
+    const Evaluation dropped = sim.known(11500);
+    QCOMPARE_ENUM(dropped.transition, Transition::Stale);
+    QVERIFY(dropped.note.startsWith(QStringLiteral("generation 1 below 2")));
+    sim.generation = 2;
+    QVERIFY(allTransitions(sim.run(12000, 15500, 500), Transition::None));
+    QCOMPARE_ENUM(sim.known(16000).transition, Transition::Cleared);
+  }
+
+  void seededRearmSuppressesUntilRearmFromTheClear() {
+    Sim sim;
+    sim.ev.seedRearm(sim.baseUtcMs - 10000);
+    sim.run(0, 9500, 500, {"t1"});
+    QCOMPARE_ENUM(sim.known(10000, {"t1"}).transition, Transition::Suppressed);
+    QVERIFY(allTransitions(sim.run(10500, 19500, 500, {"t1"}), Transition::Suppressed));
+    const Evaluation opened = sim.known(20000, {"t1"});
+    QCOMPARE_ENUM(opened.transition, Transition::Triggered);
+    QCOMPARE(opened.eventId, QStringLiteral("evt-1"));
+
+    Sim old;
+    old.ev.seedRearm(old.baseUtcMs - 60000);
+    QCOMPARE_ENUM(old.trigger().transition, Transition::Triggered);
+  }
+
+  void abandonedEventTriggersAgain() {
+    Sim sim;
+    QCOMPARE(sim.trigger().eventId, QStringLiteral("evt-1"));
+    sim.ev.abandonEvent();
+    QVERIFY(!sim.ev.openEventId().has_value());
+    const Evaluation retried = sim.known(10500, {"t1"});
+    QCOMPARE_ENUM(retried.transition, Transition::Triggered);
+    QCOMPARE(retried.eventId, QStringLiteral("evt-2"));
+  }
+
   void unknownUtcWithScheduleFreezes() {
     RuleRevision r = makeRule();
     r.timeZoneId = QStringLiteral("Asia/Seoul");

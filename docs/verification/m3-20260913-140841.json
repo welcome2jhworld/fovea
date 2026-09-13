@@ -1,0 +1,239 @@
+{
+ "platform": "darwin",
+ "machine": "arm64",
+ "cpu_count": 10,
+ "media": [
+  {
+   "name": "sample3.mp4",
+   "codec": "h264",
+   "width": 1920,
+   "height": 1080,
+   "fps": 30.0,
+   "transcoded": true,
+   "used": "sample3-540p25.mp4"
+  },
+  {
+   "name": "sample2.mp4",
+   "codec": "h264",
+   "width": 768,
+   "height": 432,
+   "fps": 12.0,
+   "transcoded": false
+  }
+ ],
+ "loadavg_start": [
+  9.89,
+  9.27,
+  7.89
+ ],
+ "worker_start": {
+  "core_start_to_known_results_s": 17.1,
+  "source": "env",
+  "detector": "rf-detr-nano",
+  "device": "mps",
+  "detector_load_ms": 13899
+ },
+ "zone_sampling": {
+  "frame_size": [
+   960,
+   540
+  ],
+  "positive_anchor_hits": 24,
+  "negative_anchor_hits": 0,
+  "seconds": 6
+ },
+ "scenario1_dwell": {
+  "event_id": "9072e84a-d24c-4695-97ac-0633c63517fd",
+  "opened_after_first_known_detection_ms": 10080,
+  "pending_rows_before_trigger": 1,
+  "dwell_at_trigger_ms": 10080,
+  "trigger_frame_receive_to_event_row_ms": 133,
+  "dwell_overshoot_ms": 80,
+  "condition_satisfied_to_event_row_ms": 213,
+  "trigger_frame_utc_to_delivery_row_utc_ms": 8,
+  "title": "Person in Seated desks for 10 s",
+  "detail": "2 persons in the zone (tracks 4002e0.2-2, 4002e0.2-3), longest dwell 10.1 s",
+  "events_60s_after_trigger": 1
+ },
+ "scenario4_revision": {
+  "revision": 2,
+  "events": 1,
+  "open_event_id": "9072e84a-d24c-4695-97ac-0633c63517fd",
+  "condition": "active"
+ },
+ "scenario6_evidence": {
+  "evidence_id": "60d8d613-3809-466b-8da9-0c210d77e140",
+  "window_ms": 20000,
+  "segments": 3,
+  "available_s_after_trigger": 26.0,
+  "waited_s": 20.9,
+  "thumbnail_bytes": 160657,
+  "thumbnail_jpeg": true,
+  "playback_segment_start_utc_ms": 1789308558202,
+  "playback_frames_in_3s": 76,
+  "holds": [
+   3,
+   0
+  ]
+ },
+ "scenario5_source_stop": {
+  "old_session": "20f5d859-8f04-4322-b43f-30faf3f3bc90",
+  "new_session": "3d1f8f43-9cec-4dce-9c49-d0b205f59bd5",
+  "generation_before": 4,
+  "generation_after": 5,
+  "cleared_note": "observation gap",
+  "cleared_after_stop_ms": 15461,
+  "suppressed_rows": 1,
+  "first_suppressed_after_clear_ms": 10000,
+  "second_event_after_clear_ms": 20000,
+  "receive_gaps": 1
+ },
+ "scenario3_worker_kill": {
+  "killed_pid": 58742,
+  "pending_before_kill_s": 5,
+  "restarts": 1,
+  "worker_ready_s_after_kill": 14.7,
+  "new_pid": 59452,
+  "unknown_rows_during_outage": 1,
+  "unknown_notes": [
+   "worker_failed"
+  ],
+  "dwell_restart_after_kill_ms": 15166,
+  "events_before_resume": 0,
+  "event_after_resume_ms": 20440,
+  "rule_created_to_event_ms": 41117,
+  "seated_event_condition": [
+   "active",
+   "active"
+  ],
+  "seated_events": [
+   2,
+   2
+  ],
+  "restarted_worker_open_recordings": 0
+ },
+ "measurements": {
+  "steady_window_s": 70.7,
+  "steady_detect_fps": 1.99,
+  "steady_unknown_ratio": 0.0,
+  "run_unknown_ratio": 0.1865,
+  "run_frames": {
+   "frames_sent": 311,
+   "frames_known": 253,
+   "frames_unknown": 58,
+   "skips": 0
+  },
+  "achieved_fps_last_10s": 2,
+  "core_turnaround_ms": {
+   "p50": 111.3,
+   "p95": 153.5,
+   "samples": 200
+  },
+  "core_request_ms": {
+   "p50": 59.1,
+   "p95": 80.9,
+   "samples": 200
+  },
+  "worker_detector_turnaround_ms": {
+   "jobs": 79,
+   "p50": 58,
+   "p95": 76
+  },
+  "negative_zone": {
+   "events": 0,
+   "camera_hours": 0.0411,
+   "events_per_camera_hour": 0.0
+  },
+  "coverage_rows": {
+   "rows": 3,
+   "sent": 310,
+   "known": 251,
+   "unknown": 58
+  },
+  "second_camera": {
+   "achieved_fps": 2,
+   "frames_sent": 341,
+   "frames_known": 284,
+   "frames_unknown": 57,
+   "unknown_ratio": 0.16715542521994134,
+   "turnaround_ms": {
+    "p50": 67.8,
+    "p95": 93.7,
+    "samples": 200
+   },
+   "skips": 0
+  }
+ },
+ "scenario7_restart": {
+  "operator_state": "acknowledged",
+  "review": {
+   "event_id": "9072e84a-d24c-4695-97ac-0633c63517fd",
+   "id": "a6907ad5-7d5a-4aac-b3bb-edf695d5f5c1",
+   "label": "confirmed",
+   "note": "seated people",
+   "operator": "verify_m3",
+   "utc_ms": 1789308566125
+  },
+  "deliveries": [
+   [
+    "console",
+    "delivered"
+   ],
+   [
+    "sound",
+    "delivered"
+   ]
+  ],
+  "rule_revisions": {
+   "2fcc178c": 2,
+   "816e755a": 1,
+   "9aada1fb": 1
+  },
+  "open_before_restart": 2,
+  "cleared_on_startup": 2,
+  "worker_alive_after_core_kill": false,
+  "audit": [
+   [
+    "event.open",
+    "rules"
+   ],
+   [
+    "event.acknowledge",
+    "verify_m3"
+   ],
+   [
+    "event.review",
+    "verify_m3"
+   ]
+  ],
+  "worker_after_clean_shutdown": {
+   "info_file": false,
+   "alive": false
+  }
+ },
+ "scenario8_analytics_toggle": {
+  "analyzing_while_off": false,
+  "detections_status_while_off": 404,
+  "off_s": 8,
+  "transitions_after_enable": [
+   "became_pending"
+  ],
+  "stale_rows_after_enable": 0
+ },
+ "loadavg_end": [
+  6.16,
+  7.76,
+  7.53
+ ],
+ "ids": {
+  "zone_positive": "b6c9ed45",
+  "zone_negative": "36b9ae80",
+  "rule_positive": "2fcc178c",
+  "rule_negative": "816e755a",
+  "event1": "9072e84a",
+  "event2": "7ada48ea",
+  "rule_worker_kill": "9aada1fb"
+ },
+ "failures": [],
+ "result": "PASS"
+}

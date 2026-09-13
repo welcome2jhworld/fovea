@@ -17,6 +17,8 @@ private slots:
     c.jitterMs = 900;
     c.segmentSeconds = 30;
     c.recordEnabled = false;
+    c.retentionDays = 30;
+    c.maxBytes = 5000000000LL;
     c.createdUtcMs = 1757700000000LL;
     const Camera d = Camera::fromJson(c.toJson());
     QCOMPARE(d.id, c.id);
@@ -25,6 +27,11 @@ private slots:
     QCOMPARE(d.jitterMs, 900);
     QCOMPARE(d.segmentSeconds, 30);
     QCOMPARE(d.recordEnabled, false);
+    QCOMPARE(d.retentionDays, 30);
+    QCOMPARE(d.maxBytes, 5000000000LL);
+    const Camera defaults = Camera::fromJson(QJsonObject{{"name", "x"}});
+    QCOMPARE(defaults.retentionDays, 7);
+    QCOMPARE(defaults.maxBytes, 0);
     QCOMPARE(d.createdUtcMs, c.createdUtcMs);
   }
   void statusWithRing() {

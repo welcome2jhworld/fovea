@@ -19,6 +19,8 @@ typedef struct _GstStructure GstStructure;
 
 namespace fovea::core {
 
+class AnalysisTap;
+
 // One camera's media path across reconnects: each connection attempt is a
 // fresh GStreamer pipeline and a fresh StreamSession. Lives on the manager
 // thread; GStreamer streaming threads only touch the per-run statistics
@@ -29,11 +31,14 @@ namespace fovea::core {
 class CameraPipeline : public QObject {
   Q_OBJECT
 public:
+  // tap receives the newest decoded frames while the camera has analytics enabled.
   CameraPipeline(Camera camera, std::optional<Credentials> credentials, Store& store, const CoreConfig& config,
-                 QObject* parent = nullptr);
+                 std::shared_ptr<AnalysisTap> tap, QObject* parent = nullptr);
   // Abandons runs that are still finalizing; segments they leave in
   // "recording" are resolved by startup recovery.
   ~CameraPipeline() override;
+
+  static QString ringName(const QString& cameraId, const QString& sessionId);
 
   const Camera& camera() const { return camera_; }
   void start();
@@ -88,6 +93,7 @@ private:
   std::optional<Credentials> credentials_;
   Store& store_;
   CoreConfig config_;
+  std::shared_ptr<AnalysisTap> tap_;
   std::shared_ptr<Mailbox> mailbox_;
   std::unique_ptr<Run> run_;
   std::vector<std::unique_ptr<Run>> retiring_;

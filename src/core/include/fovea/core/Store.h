@@ -1,7 +1,10 @@
 #pragma once
 #include "fovea/Api.h"
+#include "fovea/core/Analytics.h"
 #include <QSqlDatabase>
 #include <QString>
+#include <QStringList>
+#include <QVariantMap>
 #include <QVector>
 #include <functional>
 #include <optional>
@@ -14,14 +17,51 @@ struct SegmentProbe {
   int64_t bytes = 0;
 };
 
+struct SessionRef {
+  QString cameraId;
+  QString sessionId;
+};
+
 struct RecoveryReport {
   int sessionsClosed = 0;
+  QVector<SessionRef> closedSessions;
   int gapsClosed = 0;
   int segmentsFinalized = 0;
   int segmentsDamaged = 0;
   int segmentsMissing = 0;
   int filesAdopted = 0;
   int filesQuarantined = 0;
+  int filesPurged = 0;
+};
+
+enum class SegmentDeletion { Deleted, Held, NotDeletable, Failed };
+
+// Evidence refs a deletion marked deleted, and the thumbnail files they no
+// longer reference (the caller removes them once the transaction committed).
+struct MarkedEvidence {
+  int refs = 0;
+  QStringList thumbnails;
+};
+
+struct AuditEntry {
+  QString actor;
+  QString action;
+  QString target;
+  QString detail;
+  int64_t utcMs = 0;
+};
+
+struct CameraStorage {
+  QString cameraId;
+  int64_t bytes = 0;
+  int64_t oldestUtcMs = 0;
+  int segments = 0;
+};
+
+// Keyset position for paging retention candidates oldest first.
+struct SegmentCursor {
+  int64_t startUtcMs = -1;
+  QString id;
 };
 
 class Store {
@@ -37,7 +77,9 @@ public:
   // recording files without a row (the crash hit between splitmuxsink
   // opening the file and the row insert) are adopted into their session or
   // moved to <recordingsDir>/quarantine, open gaps close at nowUtcMs and open
-  // sessions end at their last finalized segment.
+  // sessions end at their last finalized segment. Files of segments that
+  // retention deleted but did not get to remove (a crash after the row commit)
+  // are removed.
   RecoveryReport recoverOnStartup(const std::function<SegmentProbe(const QString& path)>& probe, int64_t nowUtcMs,
                                   const QString& recordingsDir);
 
@@ -45,7 +87,8 @@ public:
   std::optional<Camera> getCamera(const QString& id);
   bool insertCamera(const Camera& c);
   bool updateCamera(const Camera& c);
-  bool softDeleteCamera(const QString& id, int64_t nowUtcMs);
+  // One transaction: the camera, its segments and its evidence refs are deleted.
+  bool softDeleteCamera(const QString& id, int64_t nowUtcMs, MarkedEvidence* marked = nullptr);
 
   bool insertSession(const StreamSession& s);
   // Stores the session's pts -> UTC mapping once, as the session clock anchored it.
@@ -62,7 +105,31 @@ public:
   QVector<RecordingSegment> listSegmentsByState(const QString& state);
   std::optional<RecordingSegment> getSegment(const QString& id);
   std::optional<RecordingSegment> getSegmentByPath(const QString& path);
-  int64_t totalSegmentBytes(const QString& cameraId);
+  // Finalized, damaged and recording segments per camera; oldest_utc_ms is 0 when unknown.
+  QVector<CameraStorage> storageByCamera();
+
+  // A hold is active while its until_utc_ms is 0 (open-ended) or in the future.
+  // A failed query counts as held.
+  bool hasEvidenceHold(const QString& segmentId, int64_t nowUtcMs);
+  bool insertEvidenceHold(const QString& segmentId, int64_t untilUtcMs, const QString& reason);
+  // Finalized and damaged segments oldest first (by start_utc_ms, then id),
+  // after the cursor; cameraId empty means every camera. With endedBeforeUtcMs
+  // only segments whose content ended before it.
+  QVector<RecordingSegment> listRetentionCandidates(const QString& cameraId, std::optional<int64_t> endedBeforeUtcMs,
+                                                    const SegmentCursor& after, int limit);
+  // Bytes of finalized and damaged segments without an active hold.
+  int64_t reclaimableBytes(int64_t nowUtcMs);
+  // One IMMEDIATE transaction: the hold check, the state change to "deleted",
+  // the audit row and the evidence refs listing the segment. The caller removes
+  // the file (and the marked thumbnails) only after Deleted.
+  SegmentDeletion deleteSegmentUnlessHeld(const QString& id, const QString& reason, int64_t nowUtcMs,
+                                          MarkedEvidence* marked = nullptr);
+  // Removes files inside evidenceDir; returns how many were removed.
+  static int removeEvidenceFiles(const QStringList& paths, const QString& evidenceDir);
+  // Removes the file of a segment deleted by retention and records the
+  // removal. Paths outside recordingsDir are never touched.
+  bool removeDeletedSegmentFile(const QString& id, const QString& path, const QString& recordingsDir, int64_t nowUtcMs);
+  int purgeDeletedSegmentFiles(const QString& recordingsDir, int64_t nowUtcMs, int limit);
 
   bool insertGap(const ReceiveGap& g);
   bool closeGap(const QString& id, int64_t toUtcMs);
@@ -73,8 +140,74 @@ public:
 
   bool appendAudit(const QString& actor, const QString& action, const QString& target, const QString& detail, int64_t utcMs);
 
+  // Zones and rules keep every revision; list and get return the current one.
+  bool insertZone(const ZoneRecord& zone);
+  bool insertZoneRevision(const ZoneRecord& zone);
+  bool softDeleteZone(const QString& id, int64_t nowUtcMs);
+  QVector<ZoneRecord> listZones(const QString& cameraId = QString());
+  std::optional<ZoneRecord> getZone(const QString& id, int revision = 0);
+  bool insertRule(const RuleRecord& rule);
+  bool insertRuleRevision(const RuleRecord& rule);
+  bool softDeleteRule(const QString& id, int64_t nowUtcMs);
+  QVector<RuleRecord> listRules();
+  std::optional<RuleRecord> getRule(const QString& id);
+
+  bool insertEvaluation(const EvaluationRecord& e);
+  QVector<EvaluationRecord> listEvaluations(const QString& ruleId, int64_t fromUtcMs, int64_t toUtcMs, int limit);
+
+  // One transaction: the event, its evidence ref, an open-ended hold on every
+  // segment already overlapping the evidence window, and its alert deliveries.
+  bool openEvent(const EventRecord& event, const EvidenceRef& evidence, const QVector<AlertDelivery>& deliveries);
+  bool setEventCondition(const QString& id, const QString& condition, int64_t clearedUtcMs);
+  bool setEventOperatorState(const QString& id, const QString& state);
+  // One transaction: the operator state, the expiry of the event's evidence
+  // holds when holdsUntilUtcMs is set, and the audit row.
+  bool applyOperatorAction(const QString& eventId, const QString& state, std::optional<int64_t> holdsUntilUtcMs,
+                           const AuditEntry& audit);
+  // Events a previous run left active or clearing end at nowUtcMs, each with a
+  // cleared evaluation row and an audit row (note core_restart) in the same
+  // transaction; returns their ids.
+  QStringList clearOpenEvents(int64_t nowUtcMs);
+  // When the rule's latest event cleared; 0 when none did.
+  int64_t lastClearedUtcMs(const QString& ruleId);
+  std::optional<EventRecord> getEvent(const QString& id);
+  QVector<EventRecord> listEvents(const EventQuery& query);
+  // Events per alert-log tab over all time: unresolved (new) and acknowledged
+  // exclude events whose latest review is false_alarm; dismissed holds those
+  // and every resolved event.
+  EventCounts eventCounts();
+  // One transaction: the review and its audit row.
+  bool insertReview(const EventReview& review, const AuditEntry& audit);
+  std::optional<EventReview> latestReview(const QString& eventId);
+
+  QVector<AlertDelivery> deliveriesForEvent(const QString& eventId);
+  std::optional<AlertDelivery> getDelivery(const QString& id);
+  // Pending and failed deliveries of events that are not resolved, oldest first.
+  QVector<AlertDelivery> openDeliveries();
+  bool markDelivered(const QString& id, int64_t nowUtcMs);
+  bool recordDeliveryAttempt(const QString& id, int attempts, const QString& state, const QString& error);
+
+  std::optional<EvidenceRef> getEvidence(const QString& id);
+  std::optional<EvidenceRef> evidenceForEvent(const QString& eventId);
+  // Pending refs, and partial refs not yet re-evaluated after their window ended plus graceMs.
+  QVector<EvidenceRef> evidenceToEvaluate(int64_t graceMs);
+  // Segments of a camera (any state) whose time range intersects [fromUtcMs, toUtcMs].
+  QVector<RecordingSegment> segmentsOverlapping(const QString& cameraId, int64_t fromUtcMs, int64_t toUtcMs);
+  // One transaction: the ref's new state and thumbnail path and a hold (reason
+  // "event:<id>") per segment, with until_utc_ms 0 or holdUntilUtcMs when that is set.
+  bool updateEvidence(const EvidenceRef& ref, int64_t holdUntilUtcMs);
+  bool setEventHoldsUntil(const QString& eventId, int64_t untilUtcMs);
+
+  bool insertCoverage(const CoverageRecord& c);
+
 private:
   bool migrate();
+  // Runs body in a transaction; commits when it returns true, else rolls back.
+  bool transact(const std::function<bool()>& body);
+  // Marks refs matching the condition deleted with reason; collects their thumbnails.
+  bool markEvidenceDeleted(const QString& condition, const QVariantMap& binds, const QString& reason, int64_t nowUtcMs,
+                           MarkedEvidence* marked);
+  std::optional<bool> activeHold(const QString& segmentId, int64_t nowUtcMs);
   bool adoptRecordingFile(const std::function<SegmentProbe(const QString& path)>& probe, int64_t nowUtcMs,
                           const QString& cameraId, const QString& path);
   bool exec(const QString& sql);

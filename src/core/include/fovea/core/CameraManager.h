@@ -13,6 +13,7 @@ namespace fovea::core {
 
 class Store;
 class CameraPipeline;
+class AnalysisTap;
 
 // Owns one CameraPipeline per enabled camera, the reconnect policy, receive gap
 // bookkeeping and the per-camera status snapshot. All public methods are
@@ -34,6 +35,8 @@ public:
   std::optional<Camera> camera(const QString& id) const;
   QVector<CameraStatus> statuses() const;
   std::optional<CameraStatus> status(const QString& id) const;
+  // Newest decoded frame slot of a camera whose pipeline has run; null otherwise.
+  std::shared_ptr<AnalysisTap> analysisTap(const QString& cameraId) const;
 
   std::optional<Camera> createCamera(Camera c, const std::optional<Credentials>& creds, QString* error);
   bool updateCamera(const Camera& c, const std::optional<Credentials>& creds, QString* error);

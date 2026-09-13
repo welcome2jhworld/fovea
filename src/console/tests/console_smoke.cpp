@@ -1,7 +1,10 @@
 // Starts console-stub-core, runs the console headless with FOVEA_SCREENSHOT,
 // and checks that the wall shows the stub's moving pattern rather than the
-// placeholder. Environment problems (no platform plugin, console cannot start)
-// skip instead of failing unless FOVEA_SMOKE_STRICT=1.
+// placeholder, that the M3 views render stub data (detection boxes, alert
+// table, evidence playback, zone editor over a live frame) and that the live
+// alert reached the console and was confirmed. Environment problems (no
+// platform plugin, console cannot start) skip instead of failing unless
+// FOVEA_SMOKE_STRICT=1.
 #include <QDir>
 #include <QElapsedTimer>
 #include <QImage>
@@ -9,6 +12,7 @@
 #include <QProcessEnvironment>
 #include <QTemporaryDir>
 #include <QTest>
+#include <cstdlib>
 
 namespace {
 
@@ -37,9 +41,36 @@ int brightPixels(const QImage& img, const Region& r) {
   return count;
 }
 
+// Pixels within 24 per channel of a colour: #E0603C marks detection boxes and label tabs,
+// the stub playback pattern's (120,160,255) tells a playing clip from a still thumbnail.
+int colourPixels(const QImage& img, const Region& r, QRgb colour) {
+  constexpr int kTolerance = 24;
+  int count = 0;
+  const int x0 = static_cast<int>(img.width() * r.x0), x1 = static_cast<int>(img.width() * r.x1);
+  const int y0 = static_cast<int>(img.height() * r.y0), y1 = static_cast<int>(img.height() * r.y1);
+  for (int y = y0; y < y1; ++y) {
+    const QRgb* line = reinterpret_cast<const QRgb*>(img.constScanLine(y));
+    for (int x = x0; x < x1; ++x) {
+      const QRgb px = line[x];
+      if (std::abs(qRed(px) - qRed(colour)) < kTolerance && std::abs(qGreen(px) - qGreen(colour)) < kTolerance &&
+          std::abs(qBlue(px) - qBlue(colour)) < kTolerance)
+        ++count;
+    }
+  }
+  return count;
+}
+
+const QRgb kCritical = qRgb(224, 96, 60);
+const QRgb kStubPlayback = qRgb(120, 160, 255);
+
 const Region kTabStrip{0.01, 0.045, 0.30, 0.10};
 const Region kWall{0.18, 0.11, 0.76, 0.99};
+const Region kWallTiles{0.18, 0.16, 0.76, 0.99};
 const Region kCentre{0.30, 0.25, 0.70, 0.75};
+const Region kRulesRail{0.0, 0.20, 0.27, 0.60};
+const Region kAlertRows{0.28, 0.24, 0.76, 0.50};
+const Region kDetailPlayer{0.77, 0.21, 0.99, 0.40};
+const Region kEditorFrame{0.0, 0.42, 0.27, 0.65};
 
 }
 
@@ -50,16 +81,28 @@ private slots:
   void monitorShowsLiveFrames();
   void cameraDialogRenders();
   void playbackDialogShowsFrames();
+  void monitorFeedDrawsBoxesAndConfirmsAlert();
+  void alertLogRendersRulesAndAlerts();
+  void alertDetailPlaysEvidence();
+  void ruleEditorDrawsOnLiveFrame();
   void cleanupTestCase();
 
 private:
   QImage runConsole(const QString& view, QString* problem);
+  QString stubOutput();
 
   QTemporaryDir dir_;
   QProcess stub_;
   int monitorWallBright_ = 0;
   int monitorTabBright_ = 0;
+  QString stubLog_;
 };
+
+QString TestConsoleSmoke::stubOutput() {
+  while (stub_.waitForReadyRead(300)) stubLog_ += QString::fromLocal8Bit(stub_.readAll());
+  stubLog_ += QString::fromLocal8Bit(stub_.readAll());
+  return stubLog_;
+}
 
 void TestConsoleSmoke::initTestCase() {
   QVERIFY(dir_.isValid());
@@ -84,7 +127,7 @@ QImage TestConsoleSmoke::runConsole(const QString& view, QString* problem) {
   env.insert(QStringLiteral("QT_QPA_PLATFORM"), platform);
   env.insert(QStringLiteral("FOVEA_SCREENSHOT"), png);
   env.insert(QStringLiteral("FOVEA_SCREENSHOT_VIEW"), view);
-  env.insert(QStringLiteral("FOVEA_SCREENSHOT_DELAY_MS"), QStringLiteral("5000"));
+  env.insert(QStringLiteral("FOVEA_SCREENSHOT_DELAY_MS"), QStringLiteral("6000"));
   env.remove(QStringLiteral("FOVEA_CORE_BIN"));
   console.setProcessEnvironment(env);
   console.setProgram(QStringLiteral(FOVEA_CONSOLE_BIN));
@@ -152,6 +195,61 @@ void TestConsoleSmoke::playbackDialogShowsFrames() {
   QVERIFY2(tab < monitorTabBright_ / 4, qPrintable(QStringLiteral("backdrop scrim missing (tab strip bright: %1)").arg(tab)));
   const int centre = brightPixels(img, kCentre);
   QVERIFY2(centre > 3000, qPrintable(QStringLiteral("playback pattern missing (centre bright: %1)").arg(centre)));
+}
+
+void TestConsoleSmoke::monitorFeedDrawsBoxesAndConfirmsAlert() {
+  QString problem;
+  const QImage img = runConsole(QStringLiteral("monitor-feed"), &problem);
+  if (img.isNull()) {
+    if (strict()) QFAIL(qPrintable(problem));
+    QSKIP(qPrintable(QStringLiteral("headless console run unavailable: %1").arg(problem)));
+  }
+  const int boxes = colourPixels(img, kWallTiles, kCritical);
+  qInfo("critical pixels on the wall: %d", boxes);
+  QVERIFY2(boxes > 150, qPrintable(QStringLiteral("no detection boxes on the wall (critical pixels: %1)").arg(boxes)));
+  const QString log = stubOutput();
+  QVERIFY2(log.contains(QStringLiteral("STUB raised live alert")), qPrintable(log));
+  QVERIFY2(log.contains(QStringLiteral("STUB delivered console Person in Gate apron")),
+           "the live alert was not confirmed as shown on the console");
+  qInfo("sound delivery confirmed: %s", log.contains(QStringLiteral("STUB delivered sound")) ? "yes" : "no");
+}
+
+void TestConsoleSmoke::alertLogRendersRulesAndAlerts() {
+  QString problem;
+  const QImage img = runConsole(QStringLiteral("alerts"), &problem);
+  if (img.isNull()) {
+    if (strict()) QFAIL(qPrintable(problem));
+    QSKIP(qPrintable(QStringLiteral("headless console run unavailable: %1").arg(problem)));
+  }
+  const int rules = brightPixels(img, kRulesRail);
+  const int rows = brightPixels(img, kAlertRows);
+  qInfo("bright pixels: rules rail %d, alert rows %d", rules, rows);
+  QVERIFY2(rules > 400, qPrintable(QStringLiteral("rule cards missing (bright: %1)").arg(rules)));
+  QVERIFY2(rows > 400, qPrintable(QStringLiteral("alert rows missing (bright: %1)").arg(rows)));
+}
+
+void TestConsoleSmoke::alertDetailPlaysEvidence() {
+  QString problem;
+  const QImage img = runConsole(QStringLiteral("alert-detail"), &problem);
+  if (img.isNull()) {
+    if (strict()) QFAIL(qPrintable(problem));
+    QSKIP(qPrintable(QStringLiteral("headless console run unavailable: %1").arg(problem)));
+  }
+  const int player = colourPixels(img, kDetailPlayer, kStubPlayback);
+  qInfo("playback pattern pixels in the evidence player: %d", player);
+  QVERIFY2(player > 300, qPrintable(QStringLiteral("evidence clip not playing (pattern pixels: %1)").arg(player)));
+}
+
+void TestConsoleSmoke::ruleEditorDrawsOnLiveFrame() {
+  QString problem;
+  const QImage img = runConsole(QStringLiteral("rule-editor"), &problem);
+  if (img.isNull()) {
+    if (strict()) QFAIL(qPrintable(problem));
+    QSKIP(qPrintable(QStringLiteral("headless console run unavailable: %1").arg(problem)));
+  }
+  const int frame = brightPixels(img, kEditorFrame);
+  qInfo("bright pixels in the zone editor: %d", frame);
+  QVERIFY2(frame > 3000, qPrintable(QStringLiteral("zone editor shows no live frame (bright: %1)").arg(frame)));
 }
 
 void TestConsoleSmoke::cleanupTestCase() {

@@ -1,0 +1,230 @@
+{
+ "platform": "darwin",
+ "machine": "arm64",
+ "cpu_count": 10,
+ "media": [
+  {
+   "name": "sample3.mp4",
+   "codec": "h264",
+   "width": 1920,
+   "height": 1080,
+   "fps": 30.0,
+   "transcoded": true,
+   "used": "sample3-540p25.mp4"
+  },
+  {
+   "name": "sample2.mp4",
+   "codec": "h264",
+   "width": 768,
+   "height": 432,
+   "fps": 12.0,
+   "transcoded": false
+  }
+ ],
+ "loadavg_start": [
+  6.06,
+  6.81,
+  6.85
+ ],
+ "worker_start": {
+  "core_start_to_known_results_s": 16.1,
+  "source": "env",
+  "detector": "rf-detr-nano",
+  "device": "mps",
+  "detector_load_ms": 13007
+ },
+ "zone_sampling": {
+  "frame_size": [
+   960,
+   540
+  ],
+  "positive_anchor_hits": 24,
+  "negative_anchor_hits": 0,
+  "seconds": 6
+ },
+ "scenario1_dwell": {
+  "event_id": "1a80e6eb-5a1a-4ab4-a0f1-8bdd53054df2",
+  "opened_after_first_known_detection_ms": 10440,
+  "pending_rows_before_trigger": 1,
+  "dwell_at_trigger_ms": 10440,
+  "trigger_frame_receive_to_event_row_ms": 132,
+  "dwell_overshoot_ms": 440,
+  "condition_satisfied_to_event_row_ms": 572,
+  "trigger_frame_utc_to_delivery_row_utc_ms": 21,
+  "title": "Person in Seated desks for 10 s",
+  "detail": "2 persons in the zone (tracks b0d97e.1-2, b0d97e.1-3), longest dwell 10.4 s",
+  "events_60s_after_trigger": 1
+ },
+ "scenario4_revision": {
+  "revision": 2,
+  "events": 1,
+  "open_event_id": "1a80e6eb-5a1a-4ab4-a0f1-8bdd53054df2",
+  "condition": "active"
+ },
+ "scenario6_evidence": {
+  "evidence_id": "e1d4d0d6-39a3-4890-83b8-00bfca9a4a12",
+  "window_ms": 20000,
+  "segments": 3,
+  "available_s_after_trigger": 25.9,
+  "waited_s": 20.9,
+  "thumbnail_bytes": 160665,
+  "thumbnail_jpeg": true,
+  "playback_segment_start_utc_ms": 1789303174481,
+  "playback_frames_in_3s": 76,
+  "holds": [
+   3,
+   0
+  ]
+ },
+ "scenario5_source_stop": {
+  "old_session": "068af433-3431-45db-b70e-6b7c2c11a9e0",
+  "new_session": "79730b4d-d850-471f-baf9-bd986b39f1e5",
+  "generation_before": 4,
+  "generation_after": 5,
+  "cleared_note": "observation gap",
+  "cleared_after_stop_ms": 15250,
+  "suppressed_rows": 1,
+  "first_suppressed_after_clear_ms": 10000,
+  "second_event_after_clear_ms": 20440,
+  "receive_gaps": 1
+ },
+ "scenario3_worker_kill": {
+  "killed_pid": 22534,
+  "pending_before_kill_s": 5,
+  "restarts": 1,
+  "worker_ready_s_after_kill": 13.7,
+  "new_pid": 23550,
+  "unknown_rows_during_outage": 1,
+  "unknown_notes": [
+   "worker_error: Connection refused"
+  ],
+  "dwell_restart_after_kill_ms": 13898,
+  "events_before_resume": 0,
+  "event_after_resume_ms": 20560,
+  "rule_created_to_event_ms": 40494
+ },
+ "measurements": {
+  "steady_window_s": 71.2,
+  "steady_detect_fps": 1.99,
+  "steady_unknown_ratio": 0.0,
+  "run_unknown_ratio": 0.1757,
+  "run_frames": {
+   "frames_sent": 313,
+   "frames_known": 258,
+   "frames_unknown": 55,
+   "skips": 0
+  },
+  "achieved_fps_last_10s": 2,
+  "core_turnaround_ms": {
+   "p50": 70.3,
+   "p95": 89.7,
+   "samples": 200
+  },
+  "core_request_ms": {
+   "p50": 60.2,
+   "p95": 78.4,
+   "samples": 200
+  },
+  "worker_detector_turnaround_ms": {
+   "jobs": 86,
+   "p50": 57,
+   "p95": 88
+  },
+  "negative_zone": {
+   "events": 0,
+   "camera_hours": 0.0415,
+   "events_per_camera_hour": 0.0
+  },
+  "coverage_rows": {
+   "rows": 3,
+   "sent": 309,
+   "known": 254,
+   "unknown": 55
+  },
+  "second_camera": {
+   "achieved_fps": 2,
+   "frames_sent": 343,
+   "frames_known": 289,
+   "frames_unknown": 54,
+   "unknown_ratio": 0.15743440233236153,
+   "turnaround_ms": {
+    "p50": 80.8,
+    "p95": 124.3,
+    "samples": 200
+   },
+   "skips": 0
+  }
+ },
+ "scenario7_restart": {
+  "operator_state": "acknowledged",
+  "review": {
+   "event_id": "1a80e6eb-5a1a-4ab4-a0f1-8bdd53054df2",
+   "id": "0eabe4e2-8887-472c-b771-f3e0be4b0568",
+   "label": "confirmed",
+   "note": "seated people",
+   "operator": "verify_m3",
+   "utc_ms": 1789303182358
+  },
+  "deliveries": [
+   [
+    "console",
+    "delivered"
+   ],
+   [
+    "sound",
+    "delivered"
+   ]
+  ],
+  "rule_revisions": {
+   "2903fa74": 2,
+   "ad63a17f": 1,
+   "b7d640fd": 1
+  },
+  "open_before_restart": 2,
+  "cleared_on_startup": 2,
+  "worker_alive_after_core_kill": false,
+  "audit": [
+   [
+    "event.open",
+    "rules"
+   ],
+   [
+    "event.acknowledge",
+    "verify_m3"
+   ],
+   [
+    "event.review",
+    "verify_m3"
+   ]
+  ],
+  "worker_after_clean_shutdown": {
+   "info_file": false,
+   "alive": false
+  }
+ },
+ "scenario8_analytics_toggle": {
+  "analyzing_while_off": false,
+  "detections_status_while_off": 404,
+  "off_s": 8,
+  "transitions_after_enable": [
+   "became_pending"
+  ],
+  "stale_rows_after_enable": 0
+ },
+ "loadavg_end": [
+  4.49,
+  5.98,
+  6.51
+ ],
+ "ids": {
+  "zone_positive": "4c651b30",
+  "zone_negative": "b73f7faf",
+  "rule_positive": "2903fa74",
+  "rule_negative": "ad63a17f",
+  "event1": "1a80e6eb",
+  "event2": "79ccfd5c",
+  "rule_worker_kill": "b7d640fd"
+ },
+ "failures": [],
+ "result": "PASS"
+}

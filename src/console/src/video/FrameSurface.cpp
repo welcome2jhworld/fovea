@@ -3,11 +3,9 @@
 #include "theme/Theme.h"
 #include "theme/Tokens.h"
 #include "video/WallTicker.h"
-#include <QLinearGradient>
+#include "widgets/Painting.h"
 #include <QPainter>
 #include <QPainterPath>
-#include <QtMath>
-#include <cmath>
 
 namespace fovea::ui {
 namespace tk = tokens;
@@ -22,6 +20,7 @@ FrameSurface::~FrameSurface() = default;
 void FrameSurface::bind(const std::optional<fovea::RingRef>& ring, const QString& session) {
   const QString name = ring ? ring->name : QString();
   if (name == ringName_ && session == session_) return;
+  if (name != ringName_) clearFrame();
   ringName_ = name;
   session_ = session;
   reader_.reset();
@@ -32,6 +31,18 @@ void FrameSurface::bind(const std::optional<fovea::RingRef>& ring, const QString
 void FrameSurface::setCaption(const QString& caption) {
   if (caption == caption_) return;
   caption_ = caption;
+  update();
+}
+
+void FrameSurface::setStillImage(const QImage& image) {
+  still_ = image;
+  update();
+}
+
+void FrameSurface::clearFrame() {
+  image_ = QImage();
+  frameHeader_ = fovea::FrameHeader{};
+  lastSeenSeq_ = 0;
   update();
 }
 
@@ -86,6 +97,7 @@ void FrameSurface::onTick() {
     fovea::FrameHeader h;
     if (reader_->copyLatest(lastSeenSeq_, h, staging_.data(), staging_.size())) {
       staging_.swap(display_);
+      frameHeader_ = h;
       image_ = QImage(display_.data(), static_cast<int>(h.width), static_cast<int>(h.height),
                       static_cast<qsizetype>(h.stride), QImage::Format_ARGB32);
       lastObservedSeq_ = lastSeenSeq_;
@@ -103,22 +115,11 @@ void FrameSurface::onTick() {
   lastOpenAttemptNs_ = now;
 }
 
-void FrameSurface::paintStripes(QPainter& painter) const {
-  const double rad = qDegreesToRadians(tk::stripe::angleDeg);
-  const QPointF dir(std::sin(rad), -std::cos(rad));
-  QLinearGradient gradient(QPointF(0, 0), dir * tk::stripe::period);
-  gradient.setSpread(QGradient::RepeatSpread);
-  const double split = static_cast<double>(tk::stripe::lightBand) / tk::stripe::period;
-  const QColor light = tk::color::q(tk::color::stripeLight);
-  const QColor dark = tk::color::q(tk::color::stripeDark);
-  gradient.setColorAt(0.0, light);
-  gradient.setColorAt(split, light);
-  gradient.setColorAt(split + 0.0001, dark);
-  gradient.setColorAt(1.0, dark);
-  painter.save();
-  painter.setOpacity(stripeOpacity_);
-  painter.fillRect(rect(), gradient);
-  painter.restore();
+QRectF FrameSurface::imageRect() const {
+  const QImage& shown = image_.isNull() ? still_ : image_;
+  if (shown.isNull()) return {};
+  const QSizeF fitted = QSizeF(shown.size()).scaled(QSizeF(size()), Qt::KeepAspectRatio);
+  return QRectF(QPointF((width() - fitted.width()) / 2.0, (height() - fitted.height()) / 2.0), fitted);
 }
 
 void FrameSurface::paintEvent(QPaintEvent*) {
@@ -130,13 +131,12 @@ void FrameSurface::paintEvent(QPaintEvent*) {
     painter.setClipPath(clip);
   }
   painter.fillRect(rect(), tk::color::q(tk::color::bgVideo));
-  if (!image_.isNull()) {
-    const QSizeF fitted = QSizeF(image_.size()).scaled(QSizeF(size()), Qt::KeepAspectRatio);
-    const QRectF target(QPointF((width() - fitted.width()) / 2.0, (height() - fitted.height()) / 2.0), fitted);
+  const QImage& shown = image_.isNull() ? still_ : image_;
+  if (!shown.isNull()) {
     painter.setRenderHint(QPainter::SmoothPixmapTransform, true);
-    painter.drawImage(target, image_);
+    painter.drawImage(imageRect(), shown);
   } else {
-    paintStripes(painter);
+    paintPlaceholderStripes(painter, QRectF(rect()), stripeOpacity_);
   }
   if (!caption_.isEmpty()) {
     painter.setFont(Theme::placeholderCaption(height()));

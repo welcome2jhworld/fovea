@@ -2,7 +2,9 @@ import contextlib
 import io
 import json
 import threading
+import time
 import unittest
+import urllib.error
 import urllib.request
 
 from fovea_worker.backends.dry import DryBackend
@@ -16,12 +18,27 @@ class FakeDetector:
 
     def __init__(self) -> None:
         self.loads = 0
+        self.warmups = 0
+        self.device = ""
         self.jobs: list[Job] = []
+        self.load_gate: threading.Event | None = None
+        self.run_gate: threading.Event | None = None
+        self.load_error: Exception | None = None
 
     def load(self) -> None:
+        if self.load_gate is not None:
+            self.load_gate.wait(5)
+        if self.load_error is not None:
+            raise self.load_error
         self.loads += 1
+        self.device = "fake-gpu"
+
+    def warmup(self) -> None:
+        self.warmups += 1
 
     def run(self, job: Job) -> Result:
+        if self.run_gate is not None:
+            self.run_gate.wait(5)
         self.jobs.append(job)
         frames = [DetectionFrame(f.frame_id, f.pts_ns, 640, 360, []) for f in job.frames]
         return Result(job.job_id, job.generation, "ok", [], self.name, self.version, len(frames), 1,
@@ -44,7 +61,7 @@ class ServerRoutingTest(unittest.TestCase):
     def _start(self):
         self.server = serve(self.vlm, "127.0.0.1", 0, "tok", detector=self.detector)
         self.port = self.server.server_address[1]
-        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread = threading.Thread(target=self.server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True)
         self.thread.start()
 
     def tearDown(self):
@@ -62,7 +79,7 @@ class ServerRoutingTest(unittest.TestCase):
             return e.code, json.loads(e.read())
 
     def _job(self, kind, **extra):
-        frames = [{"frame_id": "f0", "pts_ns": 0, "recv_mono_ns": 0, "capture_utc_ms": 0, "path": "/tmp/x.jpg", "index": 0}]
+        frames = [{"frame_id": "f0", "pts_ns": 0, "recv_mono_ns": 0, "capture_utc_ms": 0, "path": "x.jpg", "index": 0}]
         d = {"job_id": "j", "kind": kind, "camera_id": "c", "session_id": "s", "generation": 1,
              "frames": frames, "clip": None, "gaps": [], "limits": {}}
         d.update(extra)
@@ -149,6 +166,117 @@ class ServerRoutingTest(unittest.TestCase):
         code, _ = self._call("POST", "/v1/jobs", self._job("detect_frames", limits={"deadline_ms": 50}))
         self.assertEqual(code, 200)
         self.assertGreater(self.detector.jobs[0].accepted_mono_ns, 0)
+
+
+    def test_health_reports_lane_state_device_and_turnaround(self):
+        _, health = self._call("GET", "/v1/health")
+        self.assertEqual((health["detector_state"], health["detector_device"]), ("unloaded", ""))
+        self.assertEqual(health["detector_turnaround_ms"], {"jobs": 0, "p50": None, "p95": None})
+        self.assertEqual(health["state"], "unloaded")
+        for _ in range(3):
+            self._call("POST", "/v1/jobs", self._job("detect_frames"))
+        _, health = self._call("GET", "/v1/health")
+        self.assertEqual(health["detector_state"], "ready")
+        self.assertTrue(health["detector_loaded"])
+        self.assertEqual(health["detector_device"], "fake-gpu")
+        self.assertIsInstance(health["detector_load_ms"], int)
+        self.assertEqual(health["detector_load_error"], "")
+        turnaround = health["detector_turnaround_ms"]
+        self.assertEqual(turnaround["jobs"], 2, "the job that loaded the model is excluded")
+        self.assertLessEqual(turnaround["p50"], turnaround["p95"])
+        self.assertEqual(health["turnaround_ms"]["jobs"], 0)
+
+    def test_turnaround_includes_lane_wait(self):
+        self._call("POST", "/v1/jobs", self._job("detect_frames"))
+        with self.server.state.locks["detect"]:
+            worker = threading.Thread(target=self._call, args=("POST", "/v1/jobs", self._job("detect_frames")))
+            worker.start()
+            time.sleep(0.2)
+        worker.join()
+        _, health = self._call("GET", "/v1/health")
+        self.assertGreaterEqual(health["detector_turnaround_ms"]["p50"], 200)
+
+    def test_warm_up_loads_and_warms_once_before_any_job(self):
+        self.assertTrue(self.server.state.warm_up("detect"))
+        self.assertEqual((self.detector.loads, self.detector.warmups), (1, 1))
+        _, health = self._call("GET", "/v1/health")
+        self.assertEqual(health["detector_state"], "ready")
+        self._call("POST", "/v1/jobs", self._job("detect_frames"))
+        self.assertEqual((self.detector.loads, self.detector.warmups), (1, 1))
+        _, health = self._call("GET", "/v1/health")
+        self.assertEqual(health["detector_turnaround_ms"]["jobs"], 1)
+        self.assertFalse(health["loaded"])
+
+    def test_lazy_load_does_not_run_the_warmup_inference(self):
+        self._call("POST", "/v1/jobs", self._job("detect_frames"))
+        self.assertEqual((self.detector.loads, self.detector.warmups), (1, 0))
+
+    def test_health_answers_while_the_detector_is_loading(self):
+        self.detector.load_gate = threading.Event()
+        warm = threading.Thread(target=self.server.state.warm_up, args=("detect",))
+        warm.start()
+        try:
+            deadline = time.monotonic() + 5
+            state = ""
+            while time.monotonic() < deadline and state != "loading":
+                _, health = self._call("GET", "/v1/health")
+                state = health["detector_state"]
+            self.assertEqual(state, "loading")
+            self.assertFalse(health["detector_loaded"])
+        finally:
+            self.detector.load_gate.set()
+            warm.join()
+        _, health = self._call("GET", "/v1/health")
+        self.assertEqual(health["detector_state"], "ready")
+
+    def test_failed_load_is_reported_and_retried_by_the_next_job(self):
+        self.detector.load_error = OSError("weights missing at rtsp://admin:secret@cam/x")
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.assertFalse(self.server.state.warm_up("detect"))
+            code, body = self._call("POST", "/v1/jobs", self._job("detect_frames"))
+        self.assertEqual(code, 503)
+        self.assertEqual(body["error"]["code"], "backend_load_failed")
+        _, health = self._call("GET", "/v1/health")
+        self.assertEqual(health["detector_state"], "failed")
+        self.assertIn("weights missing", health["detector_load_error"])
+        self.assertNotIn("secret", health["detector_load_error"])
+        self.detector.load_error = None
+        code, _ = self._call("POST", "/v1/jobs", self._job("detect_frames"))
+        self.assertEqual(code, 200)
+        _, health = self._call("GET", "/v1/health")
+        self.assertEqual((health["detector_state"], health["detector_load_error"]), ("ready", ""))
+
+    def test_health_reports_how_long_the_detector_lane_is_busy(self):
+        self._call("POST", "/v1/jobs", self._job("detect_frames"))
+        _, health = self._call("GET", "/v1/health")
+        self.assertEqual(health["detector_busy_ms"], 0)
+        self.detector.run_gate = threading.Event()
+        worker = threading.Thread(target=self._call, args=("POST", "/v1/jobs", self._job("detect_frames")))
+        worker.start()
+        try:
+            time.sleep(0.3)
+            _, health = self._call("GET", "/v1/health")
+        finally:
+            self.detector.run_gate.set()
+            worker.join()
+        self.assertGreaterEqual(health["detector_busy_ms"], 250)
+        self.assertEqual(health["busy_ms"], 0)
+        _, health = self._call("GET", "/v1/health")
+        self.assertEqual(health["detector_busy_ms"], 0)
+
+    def test_wait_idle_waits_for_running_jobs(self):
+        self.detector.run_gate = threading.Event()
+        worker = threading.Thread(target=self._call, args=("POST", "/v1/jobs", self._job("detect_frames")))
+        worker.start()
+        try:
+            deadline = time.monotonic() + 5
+            while time.monotonic() < deadline and self.server.state.in_flight == 0:
+                time.sleep(0.01)
+            self.assertFalse(self.server.state.wait_idle(0.05))
+        finally:
+            self.detector.run_gate.set()
+        self.assertTrue(self.server.state.wait_idle(5))
+        worker.join()
 
 
 if __name__ == "__main__":

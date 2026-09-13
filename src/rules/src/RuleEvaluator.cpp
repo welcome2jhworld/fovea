@@ -54,6 +54,14 @@ void RuleEvaluator::applyTimeZone() {
   if (!timeZone_.isValid()) timeZone_ = QTimeZone::utc();
 }
 
+void RuleEvaluator::raiseGeneration(uint64_t generation) { generation_ = std::max(generation_, generation); }
+
+void RuleEvaluator::seedRearm(int64_t clearedUtcMs) {
+  if (!lastClearedPts_) rearmSeedUtcMs_ = clearedUtcMs;
+}
+
+void RuleEvaluator::abandonEvent() { eventId_.clear(); }
+
 std::optional<QString> RuleEvaluator::openEventId() const {
   if (eventId_.isEmpty()) return std::nullopt;
   return eventId_;
@@ -115,13 +123,34 @@ void RuleEvaluator::beginSession(const QString& sessionId, int64_t firstPts) {
   lastPts_ = -1;
   lastKnownPts_ = -1;
   droppedThroughPts_ = -1;
+  coveredThroughPts_ = -1;
+  coveredPtsNs_ = 0;
   quality_ = Quality::Unknown;
 }
 
 void RuleEvaluator::noteDropped(const ObservationFrame& frame) {
   if (frame.sessionId == sessionId_ && frame.ptsNs > lastPts_) {
     droppedThroughPts_ = std::max(droppedThroughPts_, frame.ptsNs);
+    coverUnobserved(frame);
   }
+}
+
+void RuleEvaluator::coverUnobserved(const ObservationFrame& frame) {
+  if (coveredThroughPts_ >= 0 && frame.ptsNs > coveredThroughPts_)
+    coveredPtsNs_ += std::min(frame.ptsNs - coveredThroughPts_, rule_.maxObservationGapNs);
+  if (coveredThroughRecvNs_ && frame.recvMonoNs > *coveredThroughRecvNs_)
+    coveredRecvNs_ += std::min(frame.recvMonoNs - *coveredThroughRecvNs_, rule_.maxObservationGapNs);
+  coveredThroughPts_ = std::max(coveredThroughPts_, frame.ptsNs);
+  coveredThroughRecvNs_ = std::max(coveredThroughRecvNs_.value_or(frame.recvMonoNs), frame.recvMonoNs);
+}
+
+void RuleEvaluator::applyRearmSeed(const ObservationFrame& frame) {
+  if (!rearmSeedUtcMs_ || frame.utcMs <= 0) return;
+  if (!lastClearedPts_) {
+    const int64_t sinceClearMs = std::clamp<int64_t>(frame.utcMs - *rearmSeedUtcMs_, 0, rule_.rearmNs / 1'000'000 + 1);
+    lastClearedPts_ = frame.ptsNs - sinceClearMs * 1'000'000;
+  }
+  rearmSeedUtcMs_.reset();
 }
 
 void RuleEvaluator::shiftTimers(int64_t byNs) {
@@ -233,8 +262,9 @@ void RuleEvaluator::evaluateKnown(const ObservationFrame& frame, Evaluation& e) 
   bool closedByGap = false;
   const bool firstInSession = lastKnownPts_ < 0;
   if (firstInSession || pts - lastKnownPts_ > rule_.maxObservationGapNs) {
-    int64_t unobservedNs = pts - lastKnownPts_;
-    if (firstInSession) unobservedNs = lastKnownRecvMonoNs_ ? frame.recvMonoNs - *lastKnownRecvMonoNs_ : 0;
+    int64_t unobservedNs = pts - lastKnownPts_ - coveredPtsNs_;
+    if (firstInSession)
+      unobservedNs = lastKnownRecvMonoNs_ ? frame.recvMonoNs - *lastKnownRecvMonoNs_ - coveredRecvNs_ : 0;
     resetPending();
     if (occupied(state_) && unobservedNs > rule_.clearAfterNs) {
       closeOccupancy(pts, e);
@@ -244,6 +274,10 @@ void RuleEvaluator::evaluateKnown(const ObservationFrame& frame, Evaluation& e) 
   }
   lastKnownPts_ = pts;
   lastKnownRecvMonoNs_ = frame.recvMonoNs;
+  coveredThroughPts_ = pts;
+  coveredThroughRecvNs_ = frame.recvMonoNs;
+  coveredPtsNs_ = 0;
+  coveredRecvNs_ = 0;
   quality_ = Quality::Known;
 
   const bool scheduled = inSchedule(frame.utcMs);
@@ -343,6 +377,7 @@ Evaluation RuleEvaluator::evaluate(const ObservationFrame& frame, int64_t nowMon
   }
 
   if (!sameSession) beginSession(frame.sessionId, frame.ptsNs);
+  applyRearmSeed(frame);
   const int64_t prevPts = lastPts_;
   generation_ = frame.generation;
   lastPts_ = frame.ptsNs;
@@ -363,6 +398,7 @@ Evaluation RuleEvaluator::evaluate(const ObservationFrame& frame, int64_t nowMon
   if (unobservable == Transition::None) {
     evaluateKnown(frame, e);
   } else {
+    coverUnobserved(frame);
     quality_ = Quality::Unknown;
     e.transition = unobservable;
     e.note = note;

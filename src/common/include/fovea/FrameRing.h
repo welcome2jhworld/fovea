@@ -80,6 +80,11 @@ private:
 };
 
 QString makeRingName(const QString& channelId);
+// POSIX shared memory outlives its processes, so a writer killed before its
+// destructor leaves the ring allocated. Removes the named ring when its writer
+// is no longer running and returns whether it did. Windows frees a mapping
+// with its last handle; there this does nothing.
+bool removeOrphanRing(const QString& name);
 std::array<uint8_t, 16> sessionIdBytes(const QString& uuid);
 QString sessionIdString(const std::array<uint8_t, 16>& bytes);
 

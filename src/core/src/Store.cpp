@@ -1,20 +1,41 @@
 #include "fovea/core/Store.h"
+#include "StoreSql.h"
 #include "fovea/Ids.h"
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QSqlError>
 #include <QSqlQuery>
 #include <QUuid>
 #include <QVariant>
+#include <limits>
 
 namespace fovea::core {
 namespace {
 
-constexpr int kSchemaVersion = 1;
+constexpr int kSchemaVersion = 3;
 const QString kQuarantineDir = QStringLiteral("quarantine");
+// When a segment's content ended: the end time once finalized, else its start
+// (a damaged cut), else when its row was written.
+const QString kContentEndSql =
+    QStringLiteral("(CASE WHEN end_utc_ms>0 THEN end_utc_ms WHEN start_utc_ms>0 THEN start_utc_ms ELSE created_utc_ms END)");
+const QString kActiveHoldSql =
+    QStringLiteral("SELECT 1 FROM evidence_holds h WHERE h.segment_id=%1 AND (h.until_utc_ms=0 OR h.until_utc_ms>:now)");
 
-QVariant text(const QString& s) { return s.isNull() ? QVariant(QStringLiteral("")) : QVariant(s); }
+bool insideDir(const QString& path, const QString& dir) {
+  if (dir.isEmpty()) return false;
+  const QString root = QDir::cleanPath(QFileInfo(dir).absoluteFilePath()) + QLatin1Char('/');
+  const QString target = QDir::cleanPath(QFileInfo(path).absoluteFilePath());
+#ifdef _WIN32
+  return target.startsWith(root, Qt::CaseInsensitive);
+#else
+  return target.startsWith(root);
+#endif
+}
+
+using sql::text;
 
 Camera readCamera(const QSqlQuery& q) {
   Camera c;
@@ -32,6 +53,8 @@ Camera readCamera(const QSqlQuery& q) {
   c.analyticsEnabled = q.value("analytics_enabled").toBool();
   c.recordEnabled = q.value("record_enabled").toBool();
   c.enabled = q.value("enabled").toBool();
+  c.retentionDays = q.value("retention_days").toInt();
+  c.maxBytes = q.value("max_bytes").toLongLong();
   c.createdUtcMs = q.value("created_utc_ms").toLongLong();
   c.updatedUtcMs = q.value("updated_utc_ms").toLongLong();
   return c;
@@ -113,6 +136,63 @@ void Store::close() {
 
 bool Store::isOpen() const { return db_.isValid() && db_.isOpen(); }
 
+bool Store::transact(const std::function<bool()>& body) {
+  if (!db_.transaction()) {
+    lastError_ = db_.lastError().text();
+    return false;
+  }
+  if (!body()) {
+    const QString error = lastError_;
+    db_.rollback();
+    lastError_ = error;
+    return false;
+  }
+  if (db_.commit()) return true;
+  lastError_ = db_.lastError().text();
+  db_.rollback();
+  return false;
+}
+
+bool Store::markEvidenceDeleted(const QString& condition, const QVariantMap& binds, const QString& reason, int64_t nowUtcMs,
+                                MarkedEvidence* marked) {
+  const auto bindAll = [&binds](QSqlQuery& q) {
+    for (auto it = binds.cbegin(); it != binds.cend(); ++it) q.bindValue(it.key(), it.value());
+  };
+  QStringList thumbnails;
+  {
+    QSqlQuery q(db_);
+    q.prepare(QStringLiteral("SELECT thumbnail_path FROM evidence_refs WHERE state!='deleted' AND thumbnail_path!='' AND ") + condition);
+    bindAll(q);
+    if (!q.exec()) {
+      lastError_ = q.lastError().text();
+      return false;
+    }
+    while (q.next()) thumbnails.push_back(q.value(0).toString());
+  }
+  QSqlQuery q(db_);
+  q.prepare(QStringLiteral("UPDATE evidence_refs SET state='deleted', reason=:reason, updated_utc_ms=:now, thumbnail_path=''"
+                           " WHERE state!='deleted' AND ") + condition);
+  bindAll(q);
+  q.bindValue(":reason", text(reason));
+  q.bindValue(":now", static_cast<qlonglong>(nowUtcMs));
+  if (!q.exec()) {
+    lastError_ = q.lastError().text();
+    return false;
+  }
+  if (marked) {
+    marked->refs += q.numRowsAffected();
+    marked->thumbnails += thumbnails;
+  }
+  return true;
+}
+
+int Store::removeEvidenceFiles(const QStringList& paths, const QString& evidenceDir) {
+  int removed = 0;
+  for (const QString& path : paths)
+    if (insideDir(path, evidenceDir) && QFile::remove(path)) ++removed;
+  return removed;
+}
+
 bool Store::exec(const QString& sql) {
   QSqlQuery q(db_);
   if (!q.exec(sql)) {
@@ -127,40 +207,60 @@ bool Store::migrate() {
   QSqlQuery v(db_);
   int current = 0;
   if (v.exec(QStringLiteral("SELECT version FROM schema_version LIMIT 1")) && v.next()) current = v.value(0).toInt();
+  v.finish();
   if (current >= kSchemaVersion) return true;
-  const QStringList statements = {
-      QStringLiteral(
-          "CREATE TABLE IF NOT EXISTS cameras(id TEXT PRIMARY KEY, code TEXT NOT NULL DEFAULT '', name TEXT NOT NULL, group_name TEXT NOT NULL DEFAULT '',"
-          " kind TEXT NOT NULL, main_url TEXT NOT NULL, sub_url TEXT NOT NULL DEFAULT '', transport TEXT NOT NULL DEFAULT 'tcp',"
-          " timeout_ms INTEGER NOT NULL DEFAULT 8000, jitter_ms INTEGER NOT NULL DEFAULT 1000,"
-          " segment_seconds INTEGER NOT NULL DEFAULT 60, analytics_enabled INTEGER NOT NULL DEFAULT 0,"
-          " record_enabled INTEGER NOT NULL DEFAULT 1, enabled INTEGER NOT NULL DEFAULT 1,"
-          " created_utc_ms INTEGER NOT NULL, updated_utc_ms INTEGER NOT NULL, deleted_utc_ms INTEGER NOT NULL DEFAULT 0)"),
-      QStringLiteral(
-          "CREATE TABLE IF NOT EXISTS stream_sessions(id TEXT PRIMARY KEY, camera_id TEXT NOT NULL,"
-          " started_mono_ns INTEGER NOT NULL DEFAULT 0, started_utc_ms INTEGER NOT NULL, first_pts_ns INTEGER NOT NULL DEFAULT -1,"
-          " ended_utc_ms INTEGER NOT NULL DEFAULT 0, end_reason TEXT NOT NULL DEFAULT '', codec TEXT NOT NULL DEFAULT '',"
-          " width INTEGER NOT NULL DEFAULT 0, height INTEGER NOT NULL DEFAULT 0, fps REAL NOT NULL DEFAULT 0,"
-          " transport TEXT NOT NULL DEFAULT '', capture_clock TEXT NOT NULL DEFAULT 'none')"),
-      QStringLiteral("CREATE INDEX IF NOT EXISTS idx_sessions_camera ON stream_sessions(camera_id, started_utc_ms)"),
-      QStringLiteral(
-          "CREATE TABLE IF NOT EXISTS recording_segments(id TEXT PRIMARY KEY, camera_id TEXT NOT NULL, session_id TEXT NOT NULL,"
-          " path TEXT NOT NULL UNIQUE, state TEXT NOT NULL, start_pts_ns INTEGER NOT NULL DEFAULT 0,"
-          " end_pts_ns INTEGER NOT NULL DEFAULT 0, start_utc_ms INTEGER NOT NULL DEFAULT 0, end_utc_ms INTEGER NOT NULL DEFAULT 0,"
-          " bytes INTEGER NOT NULL DEFAULT 0, created_utc_ms INTEGER NOT NULL, finalized_utc_ms INTEGER NOT NULL DEFAULT 0)"),
-      QStringLiteral("CREATE INDEX IF NOT EXISTS idx_segments_camera_time ON recording_segments(camera_id, start_utc_ms)"),
-      QStringLiteral("CREATE INDEX IF NOT EXISTS idx_segments_state ON recording_segments(state)"),
-      QStringLiteral(
-          "CREATE TABLE IF NOT EXISTS receive_gaps(id TEXT PRIMARY KEY, camera_id TEXT NOT NULL, session_id TEXT NOT NULL,"
-          " from_utc_ms INTEGER NOT NULL, to_utc_ms INTEGER NOT NULL DEFAULT 0, reason TEXT NOT NULL)"),
-      QStringLiteral("CREATE INDEX IF NOT EXISTS idx_gaps_camera_time ON receive_gaps(camera_id, from_utc_ms)"),
-      QStringLiteral("CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value_json TEXT NOT NULL)"),
-      QStringLiteral(
-          "CREATE TABLE IF NOT EXISTS audit_log(id INTEGER PRIMARY KEY AUTOINCREMENT, utc_ms INTEGER NOT NULL,"
-          " actor TEXT NOT NULL, action TEXT NOT NULL, target TEXT NOT NULL, detail TEXT NOT NULL DEFAULT '')"),
-      QStringLiteral("DELETE FROM schema_version"),
-      QStringLiteral("INSERT INTO schema_version(version) VALUES(%1)").arg(kSchemaVersion),
-  };
+  QStringList statements;
+  if (current < 1) {
+    statements = {
+        QStringLiteral(
+            "CREATE TABLE IF NOT EXISTS cameras(id TEXT PRIMARY KEY, code TEXT NOT NULL DEFAULT '', name TEXT NOT NULL, group_name TEXT NOT NULL DEFAULT '',"
+            " kind TEXT NOT NULL, main_url TEXT NOT NULL, sub_url TEXT NOT NULL DEFAULT '', transport TEXT NOT NULL DEFAULT 'tcp',"
+            " timeout_ms INTEGER NOT NULL DEFAULT 8000, jitter_ms INTEGER NOT NULL DEFAULT 1000,"
+            " segment_seconds INTEGER NOT NULL DEFAULT 60, analytics_enabled INTEGER NOT NULL DEFAULT 0,"
+            " record_enabled INTEGER NOT NULL DEFAULT 1, enabled INTEGER NOT NULL DEFAULT 1,"
+            " created_utc_ms INTEGER NOT NULL, updated_utc_ms INTEGER NOT NULL, deleted_utc_ms INTEGER NOT NULL DEFAULT 0)"),
+        QStringLiteral(
+            "CREATE TABLE IF NOT EXISTS stream_sessions(id TEXT PRIMARY KEY, camera_id TEXT NOT NULL,"
+            " started_mono_ns INTEGER NOT NULL DEFAULT 0, started_utc_ms INTEGER NOT NULL, first_pts_ns INTEGER NOT NULL DEFAULT -1,"
+            " ended_utc_ms INTEGER NOT NULL DEFAULT 0, end_reason TEXT NOT NULL DEFAULT '', codec TEXT NOT NULL DEFAULT '',"
+            " width INTEGER NOT NULL DEFAULT 0, height INTEGER NOT NULL DEFAULT 0, fps REAL NOT NULL DEFAULT 0,"
+            " transport TEXT NOT NULL DEFAULT '', capture_clock TEXT NOT NULL DEFAULT 'none')"),
+        QStringLiteral("CREATE INDEX IF NOT EXISTS idx_sessions_camera ON stream_sessions(camera_id, started_utc_ms)"),
+        QStringLiteral(
+            "CREATE TABLE IF NOT EXISTS recording_segments(id TEXT PRIMARY KEY, camera_id TEXT NOT NULL, session_id TEXT NOT NULL,"
+            " path TEXT NOT NULL UNIQUE, state TEXT NOT NULL, start_pts_ns INTEGER NOT NULL DEFAULT 0,"
+            " end_pts_ns INTEGER NOT NULL DEFAULT 0, start_utc_ms INTEGER NOT NULL DEFAULT 0, end_utc_ms INTEGER NOT NULL DEFAULT 0,"
+            " bytes INTEGER NOT NULL DEFAULT 0, created_utc_ms INTEGER NOT NULL, finalized_utc_ms INTEGER NOT NULL DEFAULT 0)"),
+        QStringLiteral("CREATE INDEX IF NOT EXISTS idx_segments_camera_time ON recording_segments(camera_id, start_utc_ms)"),
+        QStringLiteral("CREATE INDEX IF NOT EXISTS idx_segments_state ON recording_segments(state)"),
+        QStringLiteral(
+            "CREATE TABLE IF NOT EXISTS receive_gaps(id TEXT PRIMARY KEY, camera_id TEXT NOT NULL, session_id TEXT NOT NULL,"
+            " from_utc_ms INTEGER NOT NULL, to_utc_ms INTEGER NOT NULL DEFAULT 0, reason TEXT NOT NULL)"),
+        QStringLiteral("CREATE INDEX IF NOT EXISTS idx_gaps_camera_time ON receive_gaps(camera_id, from_utc_ms)"),
+        QStringLiteral("CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value_json TEXT NOT NULL)"),
+        QStringLiteral(
+            "CREATE TABLE IF NOT EXISTS audit_log(id INTEGER PRIMARY KEY AUTOINCREMENT, utc_ms INTEGER NOT NULL,"
+            " actor TEXT NOT NULL, action TEXT NOT NULL, target TEXT NOT NULL, detail TEXT NOT NULL DEFAULT '')"),
+    };
+  }
+  if (current < 2) {
+    statements += {
+        QStringLiteral("ALTER TABLE cameras ADD COLUMN retention_days INTEGER NOT NULL DEFAULT 7"),
+        QStringLiteral("ALTER TABLE cameras ADD COLUMN max_bytes INTEGER NOT NULL DEFAULT 0"),
+        QStringLiteral("ALTER TABLE recording_segments ADD COLUMN deleted_utc_ms INTEGER NOT NULL DEFAULT 0"),
+        QStringLiteral("ALTER TABLE recording_segments ADD COLUMN delete_reason TEXT NOT NULL DEFAULT ''"),
+        QStringLiteral("ALTER TABLE recording_segments ADD COLUMN purged_utc_ms INTEGER NOT NULL DEFAULT 0"),
+        QStringLiteral("CREATE INDEX IF NOT EXISTS idx_segments_retention ON recording_segments(camera_id, state, start_utc_ms, bytes)"),
+        QStringLiteral("CREATE INDEX IF NOT EXISTS idx_segments_purge ON recording_segments(deleted_utc_ms)"
+                       " WHERE state='deleted' AND delete_reason!='' AND purged_utc_ms=0"),
+        QStringLiteral("CREATE TABLE IF NOT EXISTS evidence_holds(segment_id TEXT NOT NULL, until_utc_ms INTEGER NOT NULL DEFAULT 0,"
+                       " reason TEXT NOT NULL DEFAULT '')"),
+        QStringLiteral("CREATE INDEX IF NOT EXISTS idx_evidence_holds_segment ON evidence_holds(segment_id)"),
+    };
+  }
+  if (current < 3) statements += sql::analyticsSchemaStatements();
+  statements += {QStringLiteral("DELETE FROM schema_version"),
+                 QStringLiteral("INSERT INTO schema_version(version) VALUES(%1)").arg(kSchemaVersion)};
   db_.transaction();
   for (const QString& s : statements) {
     if (!exec(s)) {
@@ -177,7 +277,8 @@ RecoveryReport Store::recoverOnStartup(const std::function<SegmentProbe(const QS
   for (const RecordingSegment& seg : listSegmentsByState(QStringLiteral("recording"))) {
     const SegmentProbe p = probe(seg.path);
     if (p.readable) {
-      finalizeSegment(seg.id, seg.startPtsNs + p.durationNs, seg.startUtcMs + p.durationNs / 1'000'000, p.bytes, nowUtcMs);
+      finalizeSegment(seg.id, seg.startPtsNs + p.durationNs, seg.startUtcMs > 0 ? seg.startUtcMs + p.durationNs / 1'000'000 : 0,
+                      p.bytes, nowUtcMs);
       ++r.segmentsFinalized;
     } else {
       markSegmentDamaged(seg.id, p.bytes);
@@ -202,10 +303,16 @@ RecoveryReport Store::recoverOnStartup(const std::function<SegmentProbe(const QS
       }
     }
   }
+  if (!recordingsDir.isEmpty()) r.filesPurged = purgeDeletedSegmentFiles(recordingsDir, nowUtcMs, std::numeric_limits<int>::max());
   QSqlQuery gaps(db_);
   gaps.prepare(QStringLiteral("UPDATE receive_gaps SET to_utc_ms=:now WHERE to_utc_ms=0"));
   gaps.bindValue(":now", static_cast<qlonglong>(nowUtcMs));
   if (gaps.exec()) r.gapsClosed = gaps.numRowsAffected();
+  {
+    QSqlQuery open(db_);
+    if (open.exec(QStringLiteral("SELECT camera_id, id FROM stream_sessions WHERE ended_utc_ms=0")))
+      while (open.next()) r.closedSessions.push_back({open.value(0).toString(), open.value(1).toString()});
+  }
   QSqlQuery q(db_);
   q.prepare(QStringLiteral(
       "UPDATE stream_sessions SET end_reason='shutdown', ended_utc_ms=MAX(started_utc_ms, COALESCE((SELECT MAX(end_utc_ms)"
@@ -236,16 +343,21 @@ bool Store::adoptRecordingFile(const std::function<SegmentProbe(const QString&)>
   if (fragment > 0)
     previous = getSegmentByPath(QStringLiteral("%1/%2_%3.mkv").arg(QFileInfo(path).path(), session->id,
                                                                    QString::number(fragment - 1).rightJustified(5, QLatin1Char('0'))));
+  // Only the first fragment starts at the session anchor; a later one whose
+  // predecessor has no end time has an unknown start.
   if (previous && previous->endUtcMs > 0) {
     seg.startPtsNs = previous->endPtsNs;
     seg.startUtcMs = previous->endUtcMs;
-  } else if (fragment == 0 && session->firstPtsNs >= 0) {
+  } else if (fragment > 0) {
+    seg.startUtcMs = 0;
+  } else if (session->firstPtsNs >= 0) {
     seg.startPtsNs = session->firstPtsNs;
   }
   if (!insertSegment(seg)) return false;
   const SegmentProbe p = probe(path);
   if (p.readable)
-    finalizeSegment(seg.id, seg.startPtsNs + p.durationNs, seg.startUtcMs + p.durationNs / 1'000'000, p.bytes, nowUtcMs);
+    finalizeSegment(seg.id, seg.startPtsNs + p.durationNs, seg.startUtcMs > 0 ? seg.startUtcMs + p.durationNs / 1'000'000 : 0,
+                    p.bytes, nowUtcMs);
   else
     markSegmentDamaged(seg.id, p.bytes);
   return true;
@@ -273,8 +385,9 @@ bool Store::insertCamera(const Camera& c) {
   QSqlQuery q(db_);
   q.prepare(QStringLiteral(
       "INSERT INTO cameras(id,code,name,group_name,kind,main_url,sub_url,transport,timeout_ms,jitter_ms,segment_seconds,"
-      "analytics_enabled,record_enabled,enabled,created_utc_ms,updated_utc_ms) VALUES(:id,:code,:name,:group_name,:kind,:main_url,"
-      ":sub_url,:transport,:timeout_ms,:jitter_ms,:segment_seconds,:analytics_enabled,:record_enabled,:enabled,:created,:updated)"));
+      "analytics_enabled,record_enabled,enabled,retention_days,max_bytes,created_utc_ms,updated_utc_ms) VALUES(:id,:code,:name,"
+      ":group_name,:kind,:main_url,:sub_url,:transport,:timeout_ms,:jitter_ms,:segment_seconds,:analytics_enabled,:record_enabled,"
+      ":enabled,:retention_days,:max_bytes,:created,:updated)"));
   q.bindValue(":id", text(c.id));
   q.bindValue(":code", text(c.code));
   q.bindValue(":name", text(c.name));
@@ -289,6 +402,8 @@ bool Store::insertCamera(const Camera& c) {
   q.bindValue(":analytics_enabled", c.analyticsEnabled ? 1 : 0);
   q.bindValue(":record_enabled", c.recordEnabled ? 1 : 0);
   q.bindValue(":enabled", c.enabled ? 1 : 0);
+  q.bindValue(":retention_days", c.retentionDays);
+  q.bindValue(":max_bytes", static_cast<qlonglong>(c.maxBytes));
   q.bindValue(":created", static_cast<qlonglong>(c.createdUtcMs));
   q.bindValue(":updated", static_cast<qlonglong>(c.updatedUtcMs));
   if (!q.exec()) { lastError_ = q.lastError().text(); return false; }
@@ -300,7 +415,8 @@ bool Store::updateCamera(const Camera& c) {
   q.prepare(QStringLiteral(
       "UPDATE cameras SET code=:code,name=:name,group_name=:group_name,kind=:kind,main_url=:main_url,sub_url=:sub_url,transport=:transport,"
       "timeout_ms=:timeout_ms,jitter_ms=:jitter_ms,segment_seconds=:segment_seconds,analytics_enabled=:analytics_enabled,"
-      "record_enabled=:record_enabled,enabled=:enabled,updated_utc_ms=:updated WHERE id=:id AND deleted_utc_ms=0"));
+      "record_enabled=:record_enabled,enabled=:enabled,retention_days=:retention_days,max_bytes=:max_bytes,updated_utc_ms=:updated"
+      " WHERE id=:id AND deleted_utc_ms=0"));
   q.bindValue(":id", text(c.id));
   q.bindValue(":code", text(c.code));
   q.bindValue(":name", text(c.name));
@@ -315,38 +431,37 @@ bool Store::updateCamera(const Camera& c) {
   q.bindValue(":analytics_enabled", c.analyticsEnabled ? 1 : 0);
   q.bindValue(":record_enabled", c.recordEnabled ? 1 : 0);
   q.bindValue(":enabled", c.enabled ? 1 : 0);
+  q.bindValue(":retention_days", c.retentionDays);
+  q.bindValue(":max_bytes", static_cast<qlonglong>(c.maxBytes));
   q.bindValue(":updated", static_cast<qlonglong>(c.updatedUtcMs));
   if (!q.exec()) { lastError_ = q.lastError().text(); return false; }
   return q.numRowsAffected() == 1;
 }
 
-// One transaction: a deleted camera must never keep playable segments.
-bool Store::softDeleteCamera(const QString& id, int64_t nowUtcMs) {
-  if (!db_.transaction()) {
-    lastError_ = db_.lastError().text();
-    return false;
-  }
-  QSqlQuery q(db_);
-  q.prepare(QStringLiteral("UPDATE cameras SET deleted_utc_ms=:now, enabled=0 WHERE id=:id AND deleted_utc_ms=0"));
-  q.bindValue(":now", static_cast<qlonglong>(nowUtcMs));
-  q.bindValue(":id", text(id));
-  if (!q.exec() || q.numRowsAffected() != 1) {
-    if (q.lastError().isValid()) lastError_ = q.lastError().text();
-    db_.rollback();
-    return false;
-  }
-  QSqlQuery segments(db_);
-  segments.prepare(QStringLiteral("UPDATE recording_segments SET state='deleted' WHERE camera_id=:id AND state!='deleted'"));
-  segments.bindValue(":id", text(id));
-  if (!segments.exec()) {
-    lastError_ = segments.lastError().text();
-    db_.rollback();
-    return false;
-  }
-  if (db_.commit()) return true;
-  lastError_ = db_.lastError().text();
-  db_.rollback();
-  return false;
+// One transaction: a deleted camera must never keep playable segments or evidence.
+bool Store::softDeleteCamera(const QString& id, int64_t nowUtcMs, MarkedEvidence* marked) {
+  MarkedEvidence local;
+  const bool ok = transact([&] {
+    QSqlQuery q(db_);
+    q.prepare(QStringLiteral("UPDATE cameras SET deleted_utc_ms=:now, enabled=0 WHERE id=:id AND deleted_utc_ms=0"));
+    q.bindValue(":now", static_cast<qlonglong>(nowUtcMs));
+    q.bindValue(":id", text(id));
+    if (!q.exec() || q.numRowsAffected() != 1) {
+      lastError_ = q.lastError().isValid() ? q.lastError().text() : QStringLiteral("no such camera");
+      return false;
+    }
+    QSqlQuery segments(db_);
+    segments.prepare(QStringLiteral("UPDATE recording_segments SET state='deleted' WHERE camera_id=:id AND state!='deleted'"));
+    segments.bindValue(":id", text(id));
+    if (!segments.exec()) {
+      lastError_ = segments.lastError().text();
+      return false;
+    }
+    return markEvidenceDeleted(QStringLiteral("camera_id=:cam"), {{QStringLiteral(":cam"), text(id)}},
+                               QStringLiteral("camera deleted"), nowUtcMs, &local);
+  });
+  if (ok && marked) *marked = local;
+  return ok;
 }
 
 bool Store::insertSession(const StreamSession& s) {
@@ -468,6 +583,23 @@ QVector<RecordingSegment> Store::listSegments(const QString& cameraId, int64_t f
   return out;
 }
 
+// A recording segment extends to the end of the window; a damaged cut without
+// an end time counts only at its start.
+QVector<RecordingSegment> Store::segmentsOverlapping(const QString& cameraId, int64_t fromUtcMs, int64_t toUtcMs) {
+  QVector<RecordingSegment> out;
+  QSqlQuery q(db_);
+  q.prepare(QStringLiteral(
+      "SELECT * FROM recording_segments WHERE camera_id=:id AND start_utc_ms>0 AND start_utc_ms<=:to"
+      " AND (CASE WHEN end_utc_ms>0 THEN end_utc_ms WHEN state='recording' THEN :to ELSE start_utc_ms END)>=:from"
+      " ORDER BY start_utc_ms, id"));
+  q.bindValue(":id", text(cameraId));
+  q.bindValue(":from", static_cast<qlonglong>(fromUtcMs));
+  q.bindValue(":to", static_cast<qlonglong>(toUtcMs));
+  if (!q.exec()) { lastError_ = q.lastError().text(); return out; }
+  while (q.next()) out.push_back(readSegment(q));
+  return out;
+}
+
 QVector<RecordingSegment> Store::listSegmentsByState(const QString& state) {
   QVector<RecordingSegment> out;
   QSqlQuery q(db_);
@@ -494,12 +626,145 @@ std::optional<RecordingSegment> Store::getSegmentByPath(const QString& path) {
   return readSegment(q);
 }
 
-int64_t Store::totalSegmentBytes(const QString& cameraId) {
+QVector<CameraStorage> Store::storageByCamera() {
+  QVector<CameraStorage> out;
   QSqlQuery q(db_);
-  q.prepare(QStringLiteral("SELECT COALESCE(SUM(bytes),0) FROM recording_segments WHERE camera_id=:id AND state='finalized'"));
-  q.bindValue(":id", text(cameraId));
-  if (!q.exec() || !q.next()) return 0;
+  if (!q.exec(QStringLiteral(
+          "SELECT camera_id, COALESCE(SUM(bytes),0), COALESCE(MIN(CASE WHEN start_utc_ms>0 THEN start_utc_ms END),0), COUNT(*)"
+          " FROM recording_segments WHERE state IN ('finalized','damaged','recording') GROUP BY camera_id"))) {
+    lastError_ = q.lastError().text();
+    return out;
+  }
+  while (q.next())
+    out.push_back({q.value(0).toString(), q.value(1).toLongLong(), q.value(2).toLongLong(), q.value(3).toInt()});
+  return out;
+}
+
+std::optional<bool> Store::activeHold(const QString& segmentId, int64_t nowUtcMs) {
+  QSqlQuery q(db_);
+  q.prepare(kActiveHoldSql.arg(QStringLiteral(":id")) + QStringLiteral(" LIMIT 1"));
+  q.bindValue(":id", text(segmentId));
+  q.bindValue(":now", static_cast<qlonglong>(nowUtcMs));
+  if (!q.exec()) {
+    lastError_ = q.lastError().text();
+    return std::nullopt;
+  }
+  return q.next();
+}
+
+bool Store::hasEvidenceHold(const QString& segmentId, int64_t nowUtcMs) { return activeHold(segmentId, nowUtcMs).value_or(true); }
+
+bool Store::insertEvidenceHold(const QString& segmentId, int64_t untilUtcMs, const QString& reason) {
+  QSqlQuery q(db_);
+  q.prepare(QStringLiteral("INSERT INTO evidence_holds(segment_id,until_utc_ms,reason) VALUES(:id,:until,:reason)"));
+  q.bindValue(":id", text(segmentId));
+  q.bindValue(":until", static_cast<qlonglong>(untilUtcMs));
+  q.bindValue(":reason", text(reason));
+  if (!q.exec()) { lastError_ = q.lastError().text(); return false; }
+  return true;
+}
+
+QVector<RecordingSegment> Store::listRetentionCandidates(const QString& cameraId, std::optional<int64_t> endedBeforeUtcMs,
+                                                         const SegmentCursor& after, int limit) {
+  QString sql = QStringLiteral("SELECT * FROM recording_segments WHERE state IN ('finalized','damaged')"
+                               " AND (start_utc_ms>:after OR (start_utc_ms=:after AND id>:after_id))");
+  if (!cameraId.isEmpty()) sql += QStringLiteral(" AND camera_id=:cam");
+  if (endedBeforeUtcMs) sql += QStringLiteral(" AND start_utc_ms<:before AND ") + kContentEndSql + QStringLiteral("<:before");
+  sql += QStringLiteral(" ORDER BY start_utc_ms, id LIMIT :lim");
+  QVector<RecordingSegment> out;
+  QSqlQuery q(db_);
+  q.prepare(sql);
+  q.bindValue(":after", static_cast<qlonglong>(after.startUtcMs));
+  q.bindValue(":after_id", text(after.id));
+  if (!cameraId.isEmpty()) q.bindValue(":cam", text(cameraId));
+  if (endedBeforeUtcMs) q.bindValue(":before", static_cast<qlonglong>(*endedBeforeUtcMs));
+  q.bindValue(":lim", limit);
+  if (!q.exec()) { lastError_ = q.lastError().text(); return out; }
+  while (q.next()) out.push_back(readSegment(q));
+  return out;
+}
+
+int64_t Store::reclaimableBytes(int64_t nowUtcMs) {
+  QSqlQuery q(db_);
+  q.prepare(QStringLiteral("SELECT COALESCE(SUM(bytes),0) FROM recording_segments s WHERE state IN ('finalized','damaged')"
+                           " AND NOT EXISTS(") + kActiveHoldSql.arg(QStringLiteral("s.id")) + QStringLiteral(")"));
+  q.bindValue(":now", static_cast<qlonglong>(nowUtcMs));
+  if (!q.exec() || !q.next()) { lastError_ = q.lastError().text(); return 0; }
   return q.value(0).toLongLong();
+}
+
+// IMMEDIATE takes the write lock before the hold check, so no hold can be
+// written between the check and the state change.
+SegmentDeletion Store::deleteSegmentUnlessHeld(const QString& id, const QString& reason, int64_t nowUtcMs, MarkedEvidence* marked) {
+  if (!exec(QStringLiteral("BEGIN IMMEDIATE"))) return SegmentDeletion::Failed;
+  const auto rollback = [this](SegmentDeletion result) {
+    const QString error = lastError_;
+    exec(QStringLiteral("ROLLBACK"));
+    lastError_ = error;
+    return result;
+  };
+  const std::optional<bool> held = activeHold(id, nowUtcMs);
+  if (!held) return rollback(SegmentDeletion::Failed);
+  if (*held) return rollback(SegmentDeletion::Held);
+  const std::optional<RecordingSegment> seg = getSegment(id);
+  if (!seg || (seg->state != QLatin1String("finalized") && seg->state != QLatin1String("damaged")))
+    return rollback(SegmentDeletion::NotDeletable);
+  QSqlQuery q(db_);
+  q.prepare(QStringLiteral("UPDATE recording_segments SET state='deleted', deleted_utc_ms=:now, delete_reason=:reason"
+                           " WHERE id=:id AND state IN ('finalized','damaged')"));
+  q.bindValue(":now", static_cast<qlonglong>(nowUtcMs));
+  q.bindValue(":reason", text(reason));
+  q.bindValue(":id", text(id));
+  if (!q.exec()) {
+    lastError_ = q.lastError().text();
+    return rollback(SegmentDeletion::Failed);
+  }
+  if (q.numRowsAffected() != 1) return rollback(SegmentDeletion::NotDeletable);
+  const QJsonObject detail{{"camera_id", seg->cameraId}, {"reason", reason}, {"state", seg->state},
+                           {"bytes", static_cast<double>(seg->bytes)}, {"start_utc_ms", static_cast<double>(seg->startUtcMs)},
+                           {"end_utc_ms", static_cast<double>(seg->endUtcMs)}};
+  if (!appendAudit(QStringLiteral("retention"), QStringLiteral("segment.delete"), id,
+                   QString::fromUtf8(QJsonDocument(detail).toJson(QJsonDocument::Compact)), nowUtcMs)) {
+    lastError_ = QStringLiteral("audit insert failed");
+    return rollback(SegmentDeletion::Failed);
+  }
+  MarkedEvidence local;
+  if (!markEvidenceDeleted(QStringLiteral("segment_ids_json LIKE :pattern"),
+                           {{QStringLiteral(":pattern"), QStringLiteral("%\"") + id + QStringLiteral("\"%")}},
+                           QStringLiteral("segment %1 deleted by retention").arg(id), nowUtcMs, &local))
+    return rollback(SegmentDeletion::Failed);
+  if (!exec(QStringLiteral("COMMIT"))) return rollback(SegmentDeletion::Failed);
+  if (marked) *marked = local;
+  return SegmentDeletion::Deleted;
+}
+
+bool Store::removeDeletedSegmentFile(const QString& id, const QString& path, const QString& recordingsDir, int64_t nowUtcMs) {
+  if (insideDir(path, recordingsDir) && QFile::exists(path) && !QFile::remove(path)) {
+    lastError_ = QStringLiteral("cannot remove segment file");
+    return false;
+  }
+  QSqlQuery q(db_);
+  q.prepare(QStringLiteral("UPDATE recording_segments SET purged_utc_ms=:now WHERE id=:id AND state='deleted'"));
+  q.bindValue(":now", static_cast<qlonglong>(nowUtcMs));
+  q.bindValue(":id", text(id));
+  if (!q.exec()) { lastError_ = q.lastError().text(); return false; }
+  return true;
+}
+
+int Store::purgeDeletedSegmentFiles(const QString& recordingsDir, int64_t nowUtcMs, int limit) {
+  QVector<std::pair<QString, QString>> pending;
+  {
+    QSqlQuery q(db_);
+    q.prepare(QStringLiteral("SELECT id, path FROM recording_segments WHERE state='deleted' AND delete_reason!='' AND purged_utc_ms=0"
+                             " ORDER BY deleted_utc_ms LIMIT :lim"));
+    q.bindValue(":lim", limit);
+    if (!q.exec()) { lastError_ = q.lastError().text(); return 0; }
+    while (q.next()) pending.push_back({q.value(0).toString(), q.value(1).toString()});
+  }
+  int purged = 0;
+  for (const auto& [id, path] : pending)
+    if (removeDeletedSegmentFile(id, path, recordingsDir, nowUtcMs)) ++purged;
+  return purged;
 }
 
 bool Store::insertGap(const ReceiveGap& g) {
@@ -563,7 +828,11 @@ bool Store::appendAudit(const QString& actor, const QString& action, const QStri
   q.bindValue(":action", text(action));
   q.bindValue(":target", text(target));
   q.bindValue(":detail", text(detail));
-  return q.exec();
+  if (!q.exec()) {
+    lastError_ = q.lastError().text();
+    return false;
+  }
+  return true;
 }
 
 }

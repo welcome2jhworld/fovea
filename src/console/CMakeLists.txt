@@ -8,13 +8,16 @@ if(APPLE AND TARGET WrapOpenGL::WrapOpenGL)
   endif()
 endif()
 
-qt_add_executable(fovea
-  src/main.cpp
+find_package(Qt6 REQUIRED COMPONENTS Multimedia)
+
+# Everything but main.cpp, so tests can drive the console's widgets and service client in process.
+qt_add_library(fovea-console STATIC
   src/theme/Tokens.h
   src/theme/Theme.h
   src/theme/Theme.cpp
   src/theme/Icons.h
   src/theme/Icons.cpp
+  src/theme/Tone.h
   src/core/CoreClient.h
   src/core/CoreClient.cpp
   src/core/ProcessProbe.h
@@ -23,10 +26,22 @@ qt_add_executable(fovea
   src/core/CoreLauncher.cpp
   src/core/StatusPoller.h
   src/core/StatusPoller.cpp
+  src/core/AlertTypes.h
+  src/core/AlertTypes.cpp
+  src/core/EventStore.h
+  src/core/EventStore.cpp
+  src/core/AlertDispatcher.h
+  src/core/AlertDispatcher.cpp
+  src/core/ThumbnailCache.h
+  src/core/ThumbnailCache.cpp
+  src/alerts/AlertLogic.h
+  src/alerts/AlertLogic.cpp
   src/video/WallTicker.h
   src/video/WallTicker.cpp
   src/video/FrameSurface.h
   src/video/FrameSurface.cpp
+  src/video/PlaybackControls.h
+  src/video/PlaybackControls.cpp
   src/screens/MainWindow.h
   src/screens/MainWindow.cpp
   src/screens/TitleBar.h
@@ -58,12 +73,34 @@ qt_add_executable(fovea
   src/screens/monitor/RecordingsModel.cpp
   src/screens/monitor/RecordingsPanel.h
   src/screens/monitor/RecordingsPanel.cpp
+  src/screens/monitor/DetectionPoller.h
+  src/screens/monitor/DetectionPoller.cpp
+  src/screens/monitor/LiveEventFeed.h
+  src/screens/monitor/LiveEventFeed.cpp
+  src/screens/alerts/AlertsScreen.h
+  src/screens/alerts/AlertsScreen.cpp
+  src/screens/alerts/RulesRail.h
+  src/screens/alerts/RulesRail.cpp
+  src/screens/alerts/RuleEditor.h
+  src/screens/alerts/RuleEditor.cpp
+  src/screens/alerts/ZoneCanvas.h
+  src/screens/alerts/ZoneCanvas.cpp
+  src/screens/alerts/AlertTable.h
+  src/screens/alerts/AlertTable.cpp
+  src/screens/alerts/AlertDetailPanel.h
+  src/screens/alerts/AlertDetailPanel.cpp
+  src/screens/alerts/EvidencePlayer.h
+  src/screens/alerts/EvidencePlayer.cpp
   src/util/Format.h
   src/util/Format.cpp
   src/widgets/ToggleSwitch.h
   src/widgets/ToggleSwitch.cpp
   src/widgets/StatusChip.h
   src/widgets/StatusChip.cpp
+  src/widgets/Painting.h
+  src/widgets/Painting.cpp
+  src/widgets/ToneChip.h
+  src/widgets/ToneChip.cpp
   src/widgets/FormField.h
   src/widgets/FormField.cpp
   src/dialogs/DialogFrame.h
@@ -82,7 +119,7 @@ qt_add_executable(fovea
   src/dialogs/PlaybackDialog.cpp
 )
 
-qt_add_resources(fovea "fovea_fonts"
+qt_add_resources(fovea-console "fovea_fonts"
   PREFIX "/fonts"
   BASE resources/fonts
   FILES
@@ -93,7 +130,14 @@ qt_add_resources(fovea "fovea_fonts"
     resources/fonts/LICENSE.txt
 )
 
-qt_add_resources(fovea "fovea_icons"
+qt_add_resources(fovea-console "fovea_sounds"
+  PREFIX "/sounds"
+  BASE resources/sounds
+  FILES
+    resources/sounds/alert.wav
+)
+
+qt_add_resources(fovea-console "fovea_icons"
   PREFIX "/icons"
   BASE resources/icons
   FILES
@@ -106,11 +150,15 @@ qt_add_resources(fovea "fovea_icons"
     resources/icons/square.svg
 )
 
-target_include_directories(fovea PRIVATE src)
-target_link_libraries(fovea PRIVATE fovea-common Qt6::Widgets Qt6::Network Qt6::Svg)
-target_compile_definitions(fovea PRIVATE
-  FOVEA_DEV_CORE_BIN="${CMAKE_BINARY_DIR}/src/core/fovea-core${CMAKE_EXECUTABLE_SUFFIX}"
-  FOVEA_VERSION="${PROJECT_VERSION}")
+target_include_directories(fovea-console PUBLIC src)
+target_link_libraries(fovea-console PUBLIC fovea-common Qt6::Widgets Qt6::Network Qt6::Svg Qt6::Multimedia)
+target_compile_definitions(fovea-console PRIVATE
+  FOVEA_DEV_CORE_BIN="${CMAKE_BINARY_DIR}/src/core/fovea-core${CMAKE_EXECUTABLE_SUFFIX}")
+fovea_target_warnings(fovea-console)
+
+qt_add_executable(fovea src/main.cpp)
+target_link_libraries(fovea PRIVATE fovea-console)
+target_compile_definitions(fovea PRIVATE FOVEA_VERSION="${PROJECT_VERSION}")
 set_target_properties(fovea PROPERTIES MACOSX_BUNDLE OFF WIN32_EXECUTABLE ON)
 fovea_target_warnings(fovea)
 

@@ -1,8 +1,16 @@
 #include "fovea/FrameRing.h"
+#include <QProcess>
 #include <QTest>
 #include <atomic>
+#include <cstring>
 #include <thread>
 #include <vector>
+
+#ifndef Q_OS_WIN
+#include <fcntl.h>
+#include <sys/mman.h>
+#include <unistd.h>
+#endif
 
 using namespace fovea;
 
@@ -13,6 +21,7 @@ private slots:
   void rejectsOversizedFrames();
   void detectsTornReadsUnderContention();
   void openFailsWithoutWriter();
+  void removesOnlyOrphanRings();
   void sessionIdRoundTrip();
 };
 
@@ -109,6 +118,35 @@ void TestFrameRing::detectsTornReadsUnderContention() {
 
 void TestFrameRing::openFailsWithoutWriter() {
   QVERIFY(!FrameRingReader::open(makeRingName("does-not-exist")));
+}
+
+void TestFrameRing::removesOnlyOrphanRings() {
+  const QString name = makeRingName("test-orphan-" + QString::number(QCoreApplication::applicationPid()));
+  auto writer = FrameRingWriter::create(name, 2, 16, 16);
+  QVERIFY(writer);
+  QVERIFY(!removeOrphanRing(name));
+  QVERIFY(FrameRingReader::open(name));
+  QVERIFY(!removeOrphanRing(makeRingName("does-not-exist")));
+#ifdef Q_OS_WIN
+  QSKIP("Windows releases a mapping with its last handle");
+#else
+  QProcess exited;
+  exited.start(QStringLiteral("/bin/sh"), {QStringLiteral("-c"), QStringLiteral("sleep 0.2")});
+  QVERIFY(exited.waitForStarted());
+  const auto deadPid = static_cast<uint64_t>(exited.processId());
+  QVERIFY(deadPid > 0);
+  QVERIFY(exited.waitForFinished());
+  const int fd = shm_open(("/" + name.toStdString()).c_str(), O_RDWR, 0600);
+  QVERIFY(fd >= 0);
+  void* base = mmap(nullptr, 4096, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+  close(fd);
+  QVERIFY(base != MAP_FAILED);
+  const uint64_t writerPidOffset = 40;
+  std::memcpy(static_cast<char*>(base) + writerPidOffset, &deadPid, sizeof(deadPid));
+  munmap(base, 4096);
+  QVERIFY(removeOrphanRing(name));
+  QVERIFY(!FrameRingReader::open(name));
+#endif
 }
 
 void TestFrameRing::sessionIdRoundTrip() {

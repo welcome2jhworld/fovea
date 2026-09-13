@@ -1,0 +1,14 @@
+21:31:34 source: pattern
+21:31:37 core on 127.0.0.1:62575 health=ok
+21:31:37 camera 7716410a-dd01-4c68-8ebe-fcda23432a22
+21:31:41 online: {'fps_new': 25, 'latency_ms': {'p50': 0.779583, 'p95': 0.898542, 'p99': 1.006833}, 'codec': 'H.264', 'width': 640, 'height': 360, 'drops': 1, 'queue_depth': 0}
+21:31:44 ring: {'frames': 76, 'fps': 25.3, 'size': (640, 360), 'latency_ms_p50': 4.27, 'latency_ms_p95': 6.27}
+21:31:58 segments: {'finalized': 2, 'durations_s': [9.83, 9.83], 'bytes': [550043, 548992]}
+21:31:58 stopping source
+21:31:58 state reconnecting after 0.0 s, last_frame_age_ms=38
+21:32:02 restarting source
+21:32:08 reconnected in 2.29 s, gaps {'total': 1, 'closed': 1}
+21:32:13 playback: {'state': 'playing', 'position_s': 2.48, 'ring': {'frames': 51, 'fps': 25.5, 'size': (640, 360), 'latency_ms_p50': 3.27, 'latency_ms_p95': 6.03}}
+21:32:13 shutdown via API
+21:32:16 after restart: {'finalized': 4, 'damaged': 0, 'stale_recording': 0}
+21:32:19 PASS

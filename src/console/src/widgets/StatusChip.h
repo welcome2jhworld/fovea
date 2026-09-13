@@ -1,4 +1,5 @@
 #pragma once
+#include "theme/Tone.h"
 #include <QString>
 #include <QWidget>
 
@@ -8,7 +9,7 @@ namespace fovea::ui {
 class StatusChip : public QWidget {
   Q_OBJECT
 public:
-  enum class Tone { Neutral, Info, Positive, Warning, Critical };
+  using Tone = fovea::ui::Tone;
   explicit StatusChip(QWidget* parent = nullptr);
   void set(const QString& text, Tone tone, bool dot);
   QSize sizeHint() const override;

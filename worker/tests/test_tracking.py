@@ -2,7 +2,8 @@ import unittest
 
 from fovea_worker.backends.detector_rfdetr import RfDetrTracker
 from fovea_worker.protocol import FrameRef, Job, validate_result_against_job
-from fovea_worker.tracking import RawDetection, TrackerRegistry, build_detection_frame, derive_fps, sort_frames
+from fovea_worker.tracking import (DEFAULT_FPS, RATE_WINDOW, RawDetection, TrackerRegistry, build_detection_frame,
+                                  sort_frames)
 
 
 class FakeClock:
@@ -25,6 +26,7 @@ class FakeTracker:
         self.fps = fps
         self.resets = 0
         self.updates: list[list[RawDetection]] = []
+        self.thresholds: list[float] = []
         self.next_id = 1
 
     def update(self, detections):
@@ -42,6 +44,9 @@ class FakeTracker:
     def set_fps(self, fps: float) -> None:
         self.fps = fps
 
+    def set_threshold(self, threshold: float) -> None:
+        self.thresholds.append(threshold)
+
     def lost_window_ns(self) -> int:
         return self.LOST_WINDOW_NS
 
@@ -50,95 +55,247 @@ def _frames(n: int, fps: float = 2.0, start_ns: int = 0) -> list[FrameRef]:
     return [FrameRef(f"f{i:04d}", start_ns + int(i / fps * 1e9), 0, 0, f"/img/{i}.jpg", i) for i in range(n)]
 
 
+class RateTracker(FakeTracker):
+    """Lost window of three frames at the current rate, like ByteTrack's max_time_lost + 1 at 2 fps."""
+
+    def lost_window_ns(self) -> int:
+        return int(3 * 1e9 / self.fps)
+
+
 class TrackerRegistryTest(unittest.TestCase):
     def setUp(self):
         FakeTracker.created = 0
         self.clock = FakeClock()
         self.registry = TrackerRegistry(FakeTracker, idle_s=120.0, clock=self.clock)
 
+    def _feed(self, key: str, pts_ns: int) -> str:
+        entry, _ = self.registry.acquire(key)
+        note = self.registry.advance(entry, pts_ns)
+        self.registry.commit(entry, pts_ns)
+        return note
+
     def test_key_combines_camera_and_session(self):
         self.assertEqual(TrackerRegistry.key("cam1", "sess9"), "cam1:sess9")
 
     def test_same_key_reuses_tracker_and_other_key_gets_its_own(self):
-        a, note_a = self.registry.acquire("cam:s1", 0, 2.0)
+        a, note_a = self.registry.acquire("cam:s1")
         self.assertEqual(note_a, "created")
-        self.registry.commit("cam:s1", 500_000_000)
-        again, note_again = self.registry.acquire("cam:s1", 1_000_000_000, 2.0)
+        self.assertEqual(a.fps, DEFAULT_FPS)
+        self.registry.commit(a, 500_000_000)
+        again, note_again = self.registry.acquire("cam:s1")
         self.assertIs(a.tracker, again.tracker)
-        self.assertEqual(a.epoch, again.epoch)
         self.assertEqual(note_again, "")
-        b, _ = self.registry.acquire("cam:s2", 0, 2.0)
+        self.assertEqual(self.registry.advance(again, 1_000_000_000), "")
+        self.assertEqual(a.epoch, again.epoch)
+        b, _ = self.registry.acquire("cam:s2")
         self.assertIsNot(a.tracker, b.tracker)
         self.assertNotEqual(a.epoch, b.epoch)
         self.assertEqual(FakeTracker.created, 2)
 
     def test_pts_going_backwards_resets_tracker(self):
-        entry, _ = self.registry.acquire("cam:s1", 0, 2.0)
+        entry, _ = self.registry.acquire("cam:s1")
         tracker, epoch = entry.tracker, entry.epoch
-        self.registry.commit("cam:s1", 7_500_000_000)
-        same, note = self.registry.acquire("cam:s1", 0, 2.0)
-        self.assertIs(tracker, same.tracker)
-        self.assertEqual(note, "reset:pts_backwards")
+        self.registry.commit(entry, 7_500_000_000)
+        self.assertEqual(self.registry.advance(entry, 0), "reset:pts_backwards")
         self.assertEqual(tracker.resets, 1)
-        self.assertNotEqual(same.epoch, epoch)
-        self.registry.commit("cam:s1", 7_500_000_000)
-        _, note = self.registry.acquire("cam:s1", 7_500_000_000, 2.0)
-        self.assertEqual(note, "reset:pts_backwards")
-        _, note = self.registry.acquire("cam:s1", 8_000_000_000, 2.0)
-        self.assertEqual(note, "")
+        self.assertNotEqual(entry.epoch, epoch)
+        self.registry.commit(entry, 7_500_000_000)
+        self.assertEqual(self.registry.advance(entry, 7_500_000_000), "reset:pts_backwards")
+        self.assertEqual(self.registry.advance(entry, 8_000_000_000), "")
 
     def test_forward_pts_gap_beyond_lost_window_resets_tracker(self):
-        entry, _ = self.registry.acquire("cam:s1", 0, 2.0)
+        entry, _ = self.registry.acquire("cam:s1")
         epoch = entry.epoch
-        self.registry.commit("cam:s1", 500_000_000)
-        _, note = self.registry.acquire("cam:s1", 500_000_000 + FakeTracker.LOST_WINDOW_NS, 2.0)
-        self.assertEqual(note, "")
-        self.registry.commit("cam:s1", 2_000_000_000)
-        _, note = self.registry.acquire("cam:s1", 92_000_000_000, 2.0)
-        self.assertEqual(note, "reset:pts_gap")
+        self.registry.commit(entry, 500_000_000)
+        self.assertEqual(self.registry.advance(entry, 500_000_000 + FakeTracker.LOST_WINDOW_NS), "")
+        self.registry.commit(entry, 2_000_000_000)
+        self.assertEqual(self.registry.advance(entry, 92_000_000_000), "reset:pts_gap")
+        self.assertEqual(entry.tracker.resets, 1)
+        self.assertNotEqual(entry.epoch, epoch)
+
+    def test_gap_the_rules_bridge_keeps_the_tracker(self):
+        entry, _ = self.registry.acquire("cam:s1")
+        epoch = entry.epoch
+        self.registry.commit(entry, 500_000_000)
+        self.assertEqual(self.registry.advance(entry, 3_000_000_000, max_gap_ns=5_000_000_000), "")
+        self.registry.commit(entry, 3_000_000_000)
+        self.assertEqual(self.registry.advance(entry, 8_000_000_001, max_gap_ns=5_000_000_000), "reset:pts_gap")
         self.assertEqual(entry.tracker.resets, 1)
         self.assertNotEqual(entry.epoch, epoch)
 
     def test_idle_tracker_is_evicted_after_120s(self):
-        entry, _ = self.registry.acquire("cam:s1", 0, 2.0)
-        self.registry.commit("cam:s1", 500_000_000)
+        entry, _ = self.registry.acquire("cam:s1")
+        self.registry.commit(entry, 500_000_000)
         self.clock.now += 119.0
         self.assertEqual(self.registry.evict_idle(), [])
         self.clock.now += 2.0
         self.assertEqual(self.registry.evict_idle(), ["cam:s1"])
-        fresh, note = self.registry.acquire("cam:s1", 1_000_000_000, 2.0)
+        fresh, note = self.registry.acquire("cam:s1")
         self.assertIsNot(entry.tracker, fresh.tracker)
         self.assertNotEqual(entry.epoch, fresh.epoch)
         self.assertEqual(note, "created")
+        self.assertEqual(fresh.last_pts_ns, -1)
 
     def test_epochs_differ_between_registries(self):
         other = TrackerRegistry(FakeTracker, idle_s=120.0, clock=self.clock)
-        a, _ = self.registry.acquire("cam:s1", 0, 2.0)
-        b, _ = other.acquire("cam:s1", 0, 2.0)
+        a, _ = self.registry.acquire("cam:s1")
+        b, _ = other.acquire("cam:s1")
         self.assertNotEqual(a.epoch, b.epoch)
 
     def test_acquire_evicts_other_idle_sessions(self):
-        self.registry.acquire("cam:old", 0, 2.0)
+        self.registry.acquire("cam:old")
         self.clock.now += 200.0
-        self.registry.acquire("cam:new", 0, 2.0)
+        self.registry.acquire("cam:new")
         self.assertEqual(sorted(self.registry.entries), ["cam:new"])
 
-    def test_fps_change_is_passed_to_tracker_without_reset(self):
-        entry, _ = self.registry.acquire("cam:s1", 0, 2.0)
-        self.registry.commit("cam:s1", 500_000_000)
-        _, note = self.registry.acquire("cam:s1", 1_000_000_000, 4.0)
-        self.assertEqual(note, "fps:2->4")
+    def test_rate_from_gaps_between_single_frames_is_passed_to_tracker_without_reset(self):
+        notes = [self._feed("cam:s1", i * 250_000_000) for i in range(5)]
+        entry = self.registry.entries["cam:s1"]
+        self.assertEqual(notes, ["", "", "", "fps:2->4", ""])
+        self.assertEqual(entry.fps, 4.0)
         self.assertEqual(entry.tracker.fps, 4.0)
         self.assertEqual(entry.tracker.resets, 0)
 
+    def test_rate_needs_min_samples_and_uses_the_median_of_recent_gaps(self):
+        entry, _ = self.registry.acquire("cam:s1")
+        self.assertIsNone(entry.sampled_fps(0))
+        pts = 0
+        for gap_ms in (500, 10_000):
+            self.registry.commit(entry, pts)
+            pts += gap_ms * 1_000_000
+        self.assertIsNone(entry.sampled_fps(pts))
+        self.registry.commit(entry, pts)
+        self.assertAlmostEqual(entry.sampled_fps(pts + 500_000_000), 2.0)
+        for _ in range(RATE_WINDOW):
+            pts += 250_000_000
+            self.registry.commit(entry, pts)
+        self.assertEqual(len(entry.gaps_ns), RATE_WINDOW)
+        self.assertAlmostEqual(entry.sampled_fps(pts + 250_000_000), 4.0)
+
+    def test_small_jitter_does_not_retune_the_tracker(self):
+        pts = 0
+        notes = []
+        for i in range(12):
+            notes.append(self._feed("cam:s1", pts))
+            pts += (500 + (10 if i % 2 else -10)) * 1_000_000
+        self.assertEqual([n for n in notes if n], [])
+        self.assertEqual(self.registry.entries["cam:s1"].fps, DEFAULT_FPS)
+
+    def test_backwards_step_is_not_a_rate_sample(self):
+        for i in range(4):
+            self._feed("cam:s1", i * 500_000_000)
+        entry = self.registry.entries["cam:s1"]
+        gaps = list(entry.gaps_ns)
+        self.assertEqual(self._feed("cam:s1", 0), "reset:pts_backwards")
+        self.assertEqual(list(entry.gaps_ns), gaps)
+
+
+class SingleFrameSequenceTest(unittest.TestCase):
+    """The core sends one frame per detect job; continuity must match one job carrying the same frames."""
+
+    def setUp(self):
+        FakeTracker.created = 0
+        self.clock = FakeClock()
+
+    def _detector(self, factory=FakeTracker, outputs=None):
+        registry = TrackerRegistry(factory, idle_s=120.0, clock=self.clock)
+        return FakeDetector(registry, outputs if outputs is not None else {}), registry
+
+    @staticmethod
+    def _one_person(n: int) -> dict:
+        return {f"/img/{i}.jpg": [(100 + 5 * i, 50, 160 + 5 * i, 250, 0.9, "person")] for i in range(n)}
+
+    def _single_frame_jobs(self, detector, frames, session="s1"):
+        results = []
+        for frame in frames:
+            job = _detect_job([frame], session=session, job_id=f"j-{frame.frame_id}", limits={"max_frames": 1})
+            result = detector.run(job)
+            self.assertEqual(result.status, "ok")
+            self.assertEqual(validate_result_against_job(result, job), [])
+            results.append(result)
+            self.clock.now += 0.5
+        return results
+
+    def test_single_frame_jobs_keep_one_tracker_epoch_and_timeline(self):
+        detector, registry = self._detector(outputs=self._one_person(10))
+        results = self._single_frame_jobs(detector, _frames(10))
+        entry = registry.entries["cam:s1"]
+        self.assertEqual(FakeTracker.created, 1)
+        self.assertEqual(entry.resets, 0)
+        self.assertEqual(len(entry.tracker.updates), 10)
+        self.assertEqual(entry.last_pts_ns, 4_500_000_000)
+        self.assertEqual(results[0].notes, ["tracker cam:s1: created"])
+        self.assertEqual([r.notes for r in results[1:]], [[]] * 9)
+        epochs = {d.track_id.rsplit("-", 1)[0] for r in results for d in r.frames[0].detections}
+        self.assertEqual(epochs, {entry.epoch})
+
+    def test_single_frame_jobs_match_one_multi_frame_job(self):
+        outputs = self._one_person(8)
+        single, single_registry = self._detector(outputs=outputs)
+        multi, multi_registry = self._detector(outputs=outputs)
+        frames = _frames(8, fps=5.0)
+        singles = self._single_frame_jobs(single, frames)
+        whole = multi.run(_detect_job(frames))
+
+        def raw_ids(frames_out):
+            return [d.track_id.rsplit("-", 1)[1] for f in frames_out for d in f.detections]
+
+        self.assertEqual(raw_ids([r.frames[0] for r in singles]), raw_ids(whole.frames))
+        single_entry, multi_entry = single_registry.entries["cam:s1"], multi_registry.entries["cam:s1"]
+        self.assertEqual((single_entry.fps, single_entry.resets), (multi_entry.fps, multi_entry.resets))
+        self.assertAlmostEqual(single_entry.fps, 5.0)
+        self.assertEqual(list(single_entry.gaps_ns), list(multi_entry.gaps_ns))
+        self.assertIn("tracker cam:s1: fps:2->5 at f0003", singles[3].notes)
+        self.assertIn("tracker cam:s1: fps:2->5 at f0003", whole.notes)
+
+    def test_slow_feed_learns_its_rate_and_stops_resetting(self):
+        detector, registry = self._detector(factory=RateTracker, outputs=self._one_person(10))
+        results = self._single_frame_jobs(detector, _frames(10, fps=0.5))
+        entry = registry.entries["cam:s1"]
+        self.assertEqual(results[1].notes, ["tracker cam:s1: reset:pts_gap at f0001"])
+        self.assertEqual(results[2].notes, ["tracker cam:s1: reset:pts_gap at f0002"])
+        self.assertEqual(results[3].notes, ["tracker cam:s1: fps:2->0.5 at f0003"])
+        self.assertEqual([r.notes for r in results[4:]], [[]] * 6)
+        self.assertEqual(entry.resets, 2)
+        self.assertAlmostEqual(entry.tracker.fps, 0.5)
+        later = {d.track_id.rsplit("-", 1)[0] for r in results[2:] for d in r.frames[0].detections}
+        self.assertEqual(later, {entry.epoch})
+
+    def test_outage_between_single_frame_jobs_resets_without_changing_the_rate(self):
+        detector, registry = self._detector(factory=RateTracker, outputs=self._one_person(12))
+        frames = _frames(6) + _frames(6, start_ns=32_500_000_000)
+        for i, frame in enumerate(frames):
+            frame.frame_id, frame.path = f"f{i:04d}", f"/img/{i}.jpg"
+        results = self._single_frame_jobs(detector, frames)
+        entry = registry.entries["cam:s1"]
+        self.assertEqual(results[6].notes, ["tracker cam:s1: reset:pts_gap at f0006"])
+        self.assertEqual([n for r in results[7:] for n in r.notes], [])
+        self.assertEqual(entry.resets, 1)
+        self.assertEqual(entry.fps, DEFAULT_FPS)
+        before = {d.track_id for r in results[:6] for d in r.frames[0].detections}
+        after = {d.track_id for r in results[6:] for d in r.frames[0].detections}
+        self.assertFalse(before & after)
+
+    def test_replayed_single_frame_resets_and_later_frames_continue(self):
+        detector, registry = self._detector(outputs=self._one_person(6))
+        frames = _frames(6)
+        self._single_frame_jobs(detector, frames[:4])
+        replay = self._single_frame_jobs(detector, frames[1:2])[0]
+        self.assertEqual(replay.notes, ["tracker cam:s1: reset:pts_backwards at f0001"])
+        resumed = self._single_frame_jobs(detector, frames[2:3])[0]
+        self.assertEqual(resumed.notes, [])
+        self.assertEqual(registry.entries["cam:s1"].resets, 1)
+
+    def test_idle_camera_session_is_forgotten_between_single_frame_jobs(self):
+        detector, registry = self._detector(outputs=self._one_person(4))
+        first = self._single_frame_jobs(detector, _frames(2))
+        self.clock.now += 121.0
+        later = self._single_frame_jobs(detector, _frames(4)[2:])
+        self.assertEqual(later[0].notes, ["tracker cam:s1: created"])
+        self.assertFalse(set(_track_ids(first[0])) & set(_track_ids(later[0])))
+
 
 class GeometryTest(unittest.TestCase):
-    def test_derive_fps_from_pts(self):
-        self.assertAlmostEqual(derive_fps(_frames(5, fps=2.0)), 2.0)
-        self.assertAlmostEqual(derive_fps(_frames(5, fps=5.0)), 5.0)
-        self.assertEqual(derive_fps(_frames(1)), 2.0)
-        self.assertEqual(derive_fps([]), 2.0)
-
     def test_sort_frames_orders_by_pts(self):
         frames = _frames(3)[::-1]
         self.assertEqual([f.frame_id for f in sort_frames(frames)], ["f0000", "f0001", "f0002"])
@@ -243,6 +400,15 @@ class FakeDetectorRunTest(unittest.TestCase):
         self.assertEqual(result.frames[0].detections, [])
         self.assertEqual([d.cls for d in result.frames[1].detections], ["person"])
 
+    def test_job_threshold_and_max_gap_reach_the_tracker(self):
+        self.detector.run(_detect_job(_frames(1), threshold=0.2))
+        tracker = self.registry.entries["cam:s1"].tracker
+        self.assertEqual(tracker.thresholds, [0.2])
+        later = self.detector.run(_detect_job(_frames(1, start_ns=4_000_000_000), job_id="j2", max_gap_ns=5_000_000_000))
+        self.assertEqual(tracker.resets, 0)
+        self.assertFalse(any("reset" in n for n in later.notes))
+        self.assertEqual(tracker.thresholds, [0.2, 0.3])
+
     def test_tracker_only_sees_target_classes(self):
         self.detector.run(_detect_job(_frames(1)))
         tracker = self.registry.entries["cam:s1"].tracker
@@ -254,7 +420,7 @@ class FakeDetectorRunTest(unittest.TestCase):
         self.assertEqual(self.registry.entries["cam:s1"].tracker.resets, 0)
         replay = self.detector.run(_detect_job(_frames(3), session="s1", job_id="j3"))
         self.assertEqual(self.registry.entries["cam:s1"].tracker.resets, 1)
-        self.assertIn("tracker cam:s1: reset:pts_backwards", replay.notes)
+        self.assertIn("tracker cam:s1: reset:pts_backwards at f0000", replay.notes)
         self.assertNotEqual(_track_ids(first), _track_ids(replay))
         self.assertFalse(set(_track_ids(first)) & set(_track_ids(replay)))
         self.detector.run(_detect_job(_frames(3), session="s2", job_id="j4"))
@@ -296,7 +462,7 @@ class FakeDetectorRunTest(unittest.TestCase):
     def test_forward_pts_gap_resets_tracks_between_and_within_jobs(self):
         before = self.detector.run(_detect_job(_frames(2)))
         after = self.detector.run(_detect_job(_frames(2, start_ns=90_000_000_000), job_id="j2"))
-        self.assertIn("tracker cam:s1: reset:pts_gap", after.notes)
+        self.assertIn("tracker cam:s1: reset:pts_gap at f0000", after.notes)
         self.assertFalse(set(_track_ids(before)) & set(_track_ids(after)))
         frames = [_frames(1)[0], FrameRef("f0001", 60_000_000_000, 0, 0, "/img/1.jpg", 1)]
         within = self.detector.run(_detect_job(frames, session="s2", job_id="j3"))

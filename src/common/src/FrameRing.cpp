@@ -132,6 +132,27 @@ uint64_t currentPid() { return static_cast<uint64_t>(getpid()); }
 
 }
 
+bool removeOrphanRing(const QString& name) {
+#ifdef _WIN32
+  Q_UNUSED(name);
+  return false;
+#else
+  const std::string n = shmName(name);
+  const int fd = shm_open(n.c_str(), O_RDONLY, 0600);
+  if (fd < 0) return false;
+  struct stat st{};
+  void* p = fstat(fd, &st) == 0 && st.st_size >= static_cast<off_t>(kRingHeaderBytes)
+                ? mmap(nullptr, kRingHeaderBytes, PROT_READ, MAP_SHARED, fd, 0)
+                : MAP_FAILED;
+  close(fd);
+  if (p == MAP_FAILED) return false;
+  const RingHeader* hdr = static_cast<const RingHeader*>(p);
+  const bool orphan = hdr->magic == kMagic && !pidAlive(hdr->writerPid);
+  munmap(p, kRingHeaderBytes);
+  return orphan && shm_unlink(n.c_str()) == 0;
+#endif
+}
+
 QString makeRingName(const QString& channelId) {
   const QByteArray digest = QCryptographicHash::hash(channelId.toUtf8(), QCryptographicHash::Sha1).toHex();
   return QStringLiteral("fv-") + QString::fromLatin1(digest.left(16));

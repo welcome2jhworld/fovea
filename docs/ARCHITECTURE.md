@@ -35,11 +35,15 @@ CameraManager
         source (rtspsrc | filesrc+demux) -> depay/parse -> tee
           +-- record branch: queue -> splitmuxsink (no re-encode, keyframe cuts)
           +-- view branch: queue(leaky) -> decode -> convert/scale -> appsink -> FrameRing
-          +-- (M3) analysis branch: queue(leaky) -> sampled frames -> worker
+                                                                          +-> AnalysisTap (M3, newest frame)
+AnalysisScheduler (M3): AnalysisTap -> JPEG spool -> worker detect_frames -> RuleEngine
+WorkerSupervisor (M3): runs and restarts the model worker as a child process
+RuleEngine / EventService / EvidenceService (M3): evaluators, events, alerts, evidence holds
 PlaybackManager: file -> decode -> FrameRing (same widget path as live)
 Store: SQLite (WAL), owns all metadata writes
 ApiServer: QtHttpServer routes under /v1
-Metrics: per camera fps, latency, drops, queue depth, reconnects, disk
+RetentionManager: age / byte-limit / disk-floor deletion with evidence holds
+Metrics: per camera fps, latency, drops, queue depth, reconnects; process RSS and CPU; disk
 ```
 
 One GLib main loop thread services all pipeline buses. Decoding runs inside
@@ -76,7 +80,11 @@ maximum size (1280x720 BGRA, 3.7 MB). Slot header: `seq`, `session_id`,
 after. Readers pick the newest even slot, copy, and re-check `seq`; a mismatch
 is a torn read and is retried. Larger sources are scaled down in the core to fit
 the slot; the wall never needs more than 720p per tile. Memory is bounded by
-`channels * slots * slot_bytes` and is reported in metrics.
+`channels * slots * slot_bytes` and is reported in metrics. POSIX shared
+memory outlives a killed process, so startup recovery unlinks the rings of the
+sessions it closes when their writer is gone (a crashed core would otherwise
+leave every live camera's ring allocated until reboot). Playback rings are not
+tracked in the database and are not reclaimed after a crash.
 
 Copying is allowed now. Zero-copy (GPU textures) is deferred until profiling
 shows the copy is the bottleneck.
@@ -93,8 +101,14 @@ for longer than the configured threshold) are stored per session and shown in
 the UI.
 
 Disk: the core refuses to start new segments below a free-space floor, marks
-the camera `recording_paused_disk`, and shows it. Retention (M2) is separate
-for ordinary recordings and for event evidence.
+the camera `recording_paused_disk`, and shows it. `RetentionManager` (M2, core
+main thread) deletes finalized and damaged segments past each camera's
+`retention_days` or beyond its `max_bytes`, and, while free space is below the
+floor plus 10 % (at least 16 MB), the oldest segments of any camera. Event
+evidence is protected through `evidence_holds`: the hold check, the state
+change and the audit row share one IMMEDIATE transaction, and the file is
+removed only after it commits; startup recovery removes files that a crash left
+behind a committed deletion. Details in `docs/API.md` (`GET /v1/storage`).
 
 ## Console
 

@@ -12,28 +12,6 @@ constexpr int kHeight = 22;
 constexpr int kPaddingX = 8;
 constexpr int kDot = 5;
 constexpr int kDotGap = 6;
-
-QColor toneColor(StatusChip::Tone tone) {
-  switch (tone) {
-    case StatusChip::Tone::Info: return tk::color::q(tk::color::accent);
-    case StatusChip::Tone::Positive: return tk::color::q(tk::color::positive);
-    case StatusChip::Tone::Warning: return tk::color::q(tk::color::warning);
-    case StatusChip::Tone::Critical: return tk::color::q(tk::color::critical);
-    case StatusChip::Tone::Neutral: break;
-  }
-  return tk::color::q(tk::color::textMuted);
-}
-
-QColor toneTint(StatusChip::Tone tone) {
-  switch (tone) {
-    case StatusChip::Tone::Info: return tk::color::tintAccent();
-    case StatusChip::Tone::Positive: return tk::color::tintPositive();
-    case StatusChip::Tone::Warning: return tk::color::tintWarning();
-    case StatusChip::Tone::Critical: return tk::color::tintCritical();
-    case StatusChip::Tone::Neutral: break;
-  }
-  return tk::color::tintNeutral();
-}
 }
 
 StatusChip::StatusChip(QWidget* parent) : QWidget(parent) {

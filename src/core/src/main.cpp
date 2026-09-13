@@ -1,13 +1,22 @@
 #include "fovea/Clock.h"
+#include "fovea/FrameRing.h"
 #include "fovea/Paths.h"
 #include "fovea/Redact.h"
 #include "fovea/Token.h"
+#include "fovea/core/AnalysisScheduler.h"
 #include "fovea/core/ApiServer.h"
 #include "fovea/core/CameraManager.h"
+#include "fovea/core/CameraPipeline.h"
+#include "fovea/core/EventService.h"
+#include "fovea/core/EvidenceService.h"
 #include "fovea/core/MediaProbe.h"
 #include "fovea/core/PlaybackManager.h"
+#include "fovea/core/RetentionManager.h"
+#include "fovea/core/RuleEngine.h"
 #include "fovea/core/SecretStore.h"
 #include "fovea/core/Store.h"
+#include "fovea/core/SystemStats.h"
+#include "fovea/core/WorkerSupervisor.h"
 #include <QCommandLineParser>
 #include <QCoreApplication>
 #include <QDir>
@@ -22,6 +31,7 @@
 #include <csignal>
 
 #ifndef _WIN32
+#include <fcntl.h>
 #include <sys/socket.h>
 #include <unistd.h>
 #endif
@@ -88,6 +98,10 @@ int main(int argc, char** argv) {
   config.minFreeBytes = parser.value("min-free-mb").toLongLong() * 1024 * 1024;
   const QByteArray envFloor = qgetenv("FOVEA_MIN_FREE_MB");
   if (!envFloor.isEmpty()) config.minFreeBytes = envFloor.toLongLong() * 1024 * 1024;
+  config.retentionSecondsOverride = qgetenv("FOVEA_RETENTION_SECONDS").toLongLong();
+  if (config.retentionSecondsOverride > 0)
+    qWarning("FOVEA_RETENTION_SECONDS=%lld: every camera keeps recordings for that many seconds (test override)",
+             static_cast<long long>(config.retentionSecondsOverride));
 
   fovea::core::Store store;
   if (!store.open(fovea::databasePath())) {
@@ -95,10 +109,13 @@ int main(int argc, char** argv) {
     return 4;
   }
   const auto recovery = store.recoverOnStartup(fovea::core::probeSegmentFile, fovea::utcNowMs(), config.recordingsDir);
+  int ringsRemoved = 0;
+  for (const fovea::core::SessionRef& session : recovery.closedSessions)
+    if (fovea::removeOrphanRing(fovea::core::CameraPipeline::ringName(session.cameraId, session.sessionId))) ++ringsRemoved;
   qInfo("recovery: sessions closed %d, gaps closed %d, segments finalized %d, damaged %d, missing %d, files adopted %d,"
-        " quarantined %d",
+        " quarantined %d, purged %d, rings removed %d",
         recovery.sessionsClosed, recovery.gapsClosed, recovery.segmentsFinalized, recovery.segmentsDamaged,
-        recovery.segmentsMissing, recovery.filesAdopted, recovery.filesQuarantined);
+        recovery.segmentsMissing, recovery.filesAdopted, recovery.filesQuarantined, recovery.filesPurged, ringsRemoved);
 
   fovea::core::FileSecretStore secrets(fovea::secretsPath());
   const QString token = fovea::loadOrCreateToken(fovea::tokenPath());
@@ -109,7 +126,21 @@ int main(int argc, char** argv) {
 
   fovea::core::CameraManager cameras(store, secrets, config);
   fovea::core::PlaybackManager playback(store, config);
-  fovea::core::ApiServer api(cameras, playback, store, token);
+  fovea::core::RetentionManager retention(
+      store, config, [&cameras] { return cameras.cameras(); },
+      [dir = config.recordingsDir] { return fovea::core::freeDiskBytes(dir); });
+  fovea::core::WorkerSupervisor worker(config.dataDir, fovea::logsDir() + "/worker.log",
+                                      fovea::core::discoverWorker(QCoreApplication::applicationDirPath(),
+                                                                  qEnvironmentVariable("FOVEA_WORKER_CMD")));
+  fovea::core::EventService events(store, config.dataDir + "/evidence");
+  fovea::core::EvidenceService evidence(store, config.dataDir + "/evidence");
+  fovea::core::RuleEngine rules(store, events, [&cameras](const QString& id) { return cameras.camera(id); });
+  fovea::core::AnalysisScheduler scheduler(cameras, worker, store, config.dataDir + "/spool");
+  rules.setGenerations([&scheduler](const QString& id) { return scheduler.generation(id); },
+                       [&scheduler](const QString& id) { scheduler.bumpGeneration(id); });
+  scheduler.setSink([&rules](const fovea::core::AnalysisResult& result) { rules.onAnalysis(result); });
+  scheduler.setHints([&rules](const QString& id) { return rules.detectHints(id); });
+  fovea::core::ApiServer api(cameras, playback, retention, store, {rules, events, scheduler, worker}, token);
   const int64_t startedUtcMs = fovea::utcNowMs();
   api.setStartedUtcMs(startedUtcMs);
   if (!api.listen(static_cast<quint16>(parser.value("port").toUInt()))) {
@@ -120,7 +151,8 @@ int main(int argc, char** argv) {
   auto shutdown = [&] {
     qInfo("shutting down");
     playback.closeAll();
-    cameras.stopAll([] {
+    cameras.stopAll([&worker] {
+      worker.stop();
       QFile::remove(fovea::coreInfoPath());
       QCoreApplication::quit();
     });
@@ -129,6 +161,7 @@ int main(int argc, char** argv) {
 
 #ifndef _WIN32
   if (::socketpair(AF_UNIX, SOCK_STREAM, 0, g_signalFds) == 0) {
+    for (const int fd : g_signalFds) ::fcntl(fd, F_SETFD, FD_CLOEXEC);
     auto* notifier = new QSocketNotifier(g_signalFds[1], QSocketNotifier::Read, &app);
     QObject::connect(notifier, &QSocketNotifier::activated, &app, [&, notifier] {
       char c;
@@ -152,7 +185,13 @@ int main(int argc, char** argv) {
     }
   }
 
+  events.start();
+  rules.start();
   cameras.start();
+  retention.start();
+  evidence.start();
+  worker.start();
+  scheduler.start();
   qInfo("fovea-core listening on 127.0.0.1:%u, data %s", api.port(), qPrintable(fovea::dataDir()));
   const int rc = app.exec();
   g_logFile = nullptr;

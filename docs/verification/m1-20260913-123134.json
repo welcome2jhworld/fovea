@@ -1,0 +1,72 @@
+{
+ "platform": "darwin",
+ "source": "pattern",
+ "time_to_online_s": 0.52,
+ "status_online": {
+  "fps_new": 25,
+  "latency_ms": {
+   "p50": 0.779583,
+   "p95": 0.898542,
+   "p99": 1.006833
+  },
+  "codec": "H.264",
+  "width": 640,
+  "height": 360,
+  "drops": 1,
+  "queue_depth": 0
+ },
+ "ring_live": {
+  "frames": 76,
+  "fps": 25.3,
+  "size": [
+   640,
+   360
+  ],
+  "latency_ms_p50": 4.27,
+  "latency_ms_p95": 6.27
+ },
+ "segments": {
+  "finalized": 2,
+  "durations_s": [
+   9.83,
+   9.83
+  ],
+  "bytes": [
+   550043,
+   548992
+  ]
+ },
+ "disconnect_detect_s": 0.0,
+ "reconnect_s": 2.29,
+ "gaps": {
+  "total": 1,
+  "closed": 1
+ },
+ "playback": {
+  "state": "playing",
+  "position_s": 2.48,
+  "ring": {
+   "frames": 51,
+   "fps": 25.5,
+   "size": [
+    640,
+    360
+   ],
+   "latency_ms_p50": 3.27,
+   "latency_ms_p95": 6.03
+  }
+ },
+ "metrics": {
+  "cpu_percent": 4.3343998348493225,
+  "cpu_time_ms": 1598,
+  "pipelines": 1,
+  "ring_bytes": 11063512,
+  "rss_bytes": 76136448
+ },
+ "after_restart": {
+  "finalized": 4,
+  "damaged": 0,
+  "stale_recording": 0
+ },
+ "result": "PASS"
+}

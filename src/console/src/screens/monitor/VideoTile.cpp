@@ -1,4 +1,5 @@
 #include "screens/monitor/VideoTile.h"
+#include "alerts/AlertLogic.h"
 #include "fovea/Clock.h"
 #include "theme/Theme.h"
 #include "theme/Tokens.h"
@@ -23,6 +24,12 @@ namespace tk = tokens;
 
 namespace {
 constexpr int kChromeRefreshTicks = 30;
+// About 4 Hz: boxes disappear promptly once the frame on screen outruns the last detection.
+constexpr int kBoxRefreshTicks = 8;
+constexpr double kBoxStroke = 1.5;
+constexpr int kBoxLabelHeight = 17;
+constexpr int kBoxLabelOffset = 19;
+constexpr int kBoxLabelPaddingX = 5;
 constexpr int kDragPixmapWidth = 160;
 
 QString ageLabel(int64_t ageMs) {
@@ -57,6 +64,33 @@ void TileOverlay::setChrome(const TileChrome& chrome) {
   update();
 }
 
+void TileOverlay::setBoxes(const QVector<OverlayBox>& boxes) {
+  if (boxes == boxes_) return;
+  boxes_ = boxes;
+  update();
+}
+
+void TileOverlay::paintBoxes(QPainter& p) const {
+  const QColor critical = tk::color::q(tk::color::critical);
+  const QFont font = Theme::monoMicro();
+  const QFontMetrics fm(font);
+  for (const OverlayBox& box : boxes_) {
+    p.setPen(QPen(critical, kBoxStroke));
+    p.setBrush(Qt::NoBrush);
+    p.drawRoundedRect(box.rect, tk::radius::box, tk::radius::box);
+    const double tabWidth = fm.horizontalAdvance(box.label) + 2 * kBoxLabelPaddingX;
+    double tabTop = box.rect.top() - kBoxLabelOffset;
+    if (tabTop < 0) tabTop = box.rect.top() + kBoxStroke;
+    const QRectF tab(box.rect.left() - kBoxStroke / 2.0, tabTop, tabWidth, kBoxLabelHeight);
+    p.setPen(Qt::NoPen);
+    p.setBrush(critical);
+    p.drawRect(tab);
+    p.setFont(font);
+    p.setPen(tk::color::q(tk::color::criticalInk));
+    p.drawText(tab, Qt::AlignCenter, box.label);
+  }
+}
+
 void TileOverlay::setDotOpacity(double opacity) {
   dotOpacity_ = opacity;
   if (stateChipRect_.isValid()) update(stateChipRect_);
@@ -66,6 +100,7 @@ void TileOverlay::setDotOpacity(double opacity) {
 void TileOverlay::paintEvent(QPaintEvent*) {
   QPainter p(this);
   p.setRenderHint(QPainter::Antialiasing, true);
+  paintBoxes(p);
   const int inset = tk::size::tileChipInset;
   const int chipH = tk::size::tileChipHeight;
   const QFont idFont = Theme::monoMicro();
@@ -122,7 +157,7 @@ void TileOverlay::paintEvent(QPaintEvent*) {
     p.drawText(footerText, Qt::AlignBottom | Qt::AlignLeft, left);
   }
 
-  p.setPen(QPen(tk::color::q(tk::color::line), 1.0));
+  p.setPen(QPen(tk::color::q(boxes_.isEmpty() ? tk::color::line : tk::color::lineStrong), 1.0));
   p.setBrush(Qt::NoBrush);
   p.drawRoundedRect(QRectF(rect()).adjusted(0.5, 0.5, -0.5, -0.5), tk::radius::card, tk::radius::card);
 }
@@ -145,10 +180,41 @@ VideoTile::VideoTile(QWidget* parent) : QWidget(parent) {
   });
 
   connect(&WallTicker::instance(), &WallTicker::tick, this, [this] {
+    if (detections_ && ++boxTicks_ >= kBoxRefreshTicks) {
+      boxTicks_ = 0;
+      refreshBoxes();
+    }
     if (++ticks_ < kChromeRefreshTicks) return;
     ticks_ = 0;
     refreshChrome();
   });
+}
+
+void VideoTile::setOverlaysEnabled(bool enabled) {
+  if (enabled == overlays_) return;
+  overlays_ = enabled;
+  if (!enabled) detections_.reset();
+  refreshBoxes();
+}
+
+void VideoTile::setDetections(const std::optional<DetectionFrame>& frame) {
+  detections_ = overlays_ ? frame : std::nullopt;
+  refreshBoxes();
+}
+
+void VideoTile::refreshBoxes() {
+  QVector<OverlayBox> boxes;
+  if (overlays_ && detections_ && surface_->hasFrame() &&
+      detectionMatchesFrame(detections_->sessionId, detections_->ptsNs, surface_->frameSession(),
+                            surface_->framePtsNs())) {
+    const QRectF area = surface_->imageRect();
+    for (const Detection& d : std::as_const(detections_->detections)) {
+      const QRectF box(area.left() + d.box.left() * area.width(), area.top() + d.box.top() * area.height(),
+                       d.box.width() * area.width(), d.box.height() * area.height());
+      boxes.push_back({box, QStringLiteral("%1 %2").arg(d.cls, QString::number(d.confidence, 'f', 2))});
+    }
+  }
+  overlay_->setBoxes(boxes);
 }
 
 void VideoTile::setStatus(const fovea::Camera& camera, const fovea::CameraStatus& status) {
@@ -257,6 +323,7 @@ void VideoTile::resizeEvent(QResizeEvent* event) {
   QWidget::resizeEvent(event);
   surface_->setGeometry(rect());
   overlay_->setGeometry(rect());
+  refreshBoxes();
 }
 
 void VideoTile::mousePressEvent(QMouseEvent* event) {

@@ -23,6 +23,7 @@ public:
     QString error;
   };
   using ProbeCallback = std::function<void(const ProbeResult& result)>;
+  using BytesCallback = std::function<void(bool ok, const QByteArray& body, const QString& error)>;
 
   static constexpr int kTimeoutMs = 5000;
   // Headroom over the timeout_ms the core probes a camera for.
@@ -54,6 +55,26 @@ public:
                        QObject* context = nullptr);
   void closePlayback(const QString& id, Callback cb, QObject* context = nullptr);
   void metrics(Callback cb, QObject* context = nullptr);
+
+  // M3: zones, rules, events, alert delivery, overlays, evidence (docs/M3_DESIGN.md).
+  void listZones(Callback cb, QObject* context = nullptr);
+  void createZone(const QJsonObject& zone, Callback cb, QObject* context = nullptr);
+  void updateZone(const QString& id, const QJsonObject& zone, Callback cb, QObject* context = nullptr);
+  void listRules(Callback cb, QObject* context = nullptr);
+  void createRule(const QJsonObject& revision, Callback cb, QObject* context = nullptr);
+  void updateRule(const QString& id, const QJsonObject& revision, Callback cb, QObject* context = nullptr);
+  void setRuleEnabled(const QString& id, bool enabled, Callback cb, QObject* context = nullptr);
+  void listEvents(int64_t fromUtcMs, int limit, Callback cb, QObject* context = nullptr);
+  void getEvent(const QString& id, Callback cb, QObject* context = nullptr);
+  // GET /v1/events/counts: {unresolved, acknowledged, dismissed} over all events.
+  void eventCounts(Callback cb, QObject* context = nullptr);
+  // action: acknowledge, resolve or review (body {label, note}).
+  void eventAction(const QString& id, const QString& action, const QJsonObject& body, Callback cb,
+                   QObject* context = nullptr);
+  void pendingAlerts(const QString& consoleId, Callback cb, QObject* context = nullptr);
+  void confirmAlert(const QString& deliveryId, const QString& consoleId, Callback cb, QObject* context = nullptr);
+  void latestDetections(const QString& cameraId, Callback cb, QObject* context = nullptr);
+  void evidenceThumbnail(const QString& evidenceId, BytesCallback cb, QObject* context = nullptr);
   void shutdownService(Callback cb, QObject* context = nullptr);
 
 signals:
@@ -64,6 +85,7 @@ private:
     Failure failure = Failure::None;
     QJsonDocument doc;
     QString error;
+    QByteArray body;
   };
   using ResponseCallback = std::function<void(const Response& response)>;
 

@@ -21,6 +21,8 @@ struct Camera {
   bool analyticsEnabled = false;
   bool recordEnabled = true;
   bool enabled = true;
+  int retentionDays = 7;
+  int64_t maxBytes = 0;
   int64_t createdUtcMs = 0;
   int64_t updatedUtcMs = 0;
 

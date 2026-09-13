@@ -42,11 +42,16 @@ namespace fovea::rules {
 //   covered by frames of the session dropped as stale for generation or TTL.
 // - After more than maxObservationGapNs without a known frame, all track dwell
 //   is discarded and pending resets (PendingReset when the zone is empty). An
-//   open event persists across such a gap unless it lasted more than
-//   clearAfterNs (media time within a session, receive time across a session
-//   change): then the occupancy is over, Active or Clearing reports Cleared
-//   (note "observation gap") on the resume frame, and presence on that frame
-//   starts a new pending occupancy.
+//   open event persists across such a gap unless its uncovered part lasted
+//   more than clearAfterNs: then the occupancy is over, Active or Clearing
+//   reports Cleared (note "observation gap") on the resume frame, and presence
+//   on that frame starts a new pending occupancy. The gap is measured in media
+//   time within a session and in receive time across a session change; every
+//   frame that arrived but could not be observed (Unknown, ZoneMismatch, utc
+//   unknown, or dropped as stale for generation or TTL) covers the span since
+//   the previous frame, at most maxObservationGapNs, so a worker outage never
+//   closes an occupancy: on resume presence keeps Active and absence reports
+//   BecameClearing.
 // - tick() reports Unknown and marks quality Unknown once no frame has been
 //   accepted for more than maxObservationGapNs of wall time; it never changes a
 //   timer.
@@ -68,6 +73,9 @@ namespace fovea::rules {
 //   Cleared) happens, which is reported instead so that consumers never miss
 //   it.
 // - A disabled rule reports Disabled and accepts nothing.
+// - seedRearm carries a clear from before the evaluator existed (a core
+//   restart): the first accepted frame with a known utc places that clear on
+//   its media timeline, so rearm counts from the clear's wall time.
 //
 // Events, dedupe and rearm:
 // - An event opens (Triggered) only on a frame where an involved track has
@@ -98,6 +106,14 @@ public:
   // Otherwise the result reports PendingReset, Disabled or None.
   [[nodiscard]] std::optional<Evaluation> setRule(RuleRevision rule, int64_t nowUtcMs);
   const RuleRevision& rule() const { return rule_; }
+  // Frames of an older generation are stale from now on (a rule-set or
+  // session change the evaluator has not seen a frame of yet).
+  void raiseGeneration(uint64_t generation);
+  // Rearm counts from clearedUtcMs, unless an event cleared since.
+  void seedRearm(int64_t clearedUtcMs);
+  // The open event could not be stored: forget it without starting rearm, so
+  // the next frame with a completed dwell triggers again with a new id.
+  void abandonEvent();
 
   Evaluation evaluate(const ObservationFrame& frame, int64_t nowMonoNs);
   // Called periodically without observations; reports Unknown after
@@ -128,6 +144,8 @@ private:
   void applyTimeZone();
   void beginSession(const QString& sessionId, int64_t firstPts);
   void noteDropped(const ObservationFrame& frame);
+  void coverUnobserved(const ObservationFrame& frame);
+  void applyRearmSeed(const ObservationFrame& frame);
   void shiftTimers(int64_t byNs);
   void freezeSpan(int64_t fromPts, int64_t toPts);
   void freezeUncovered(int64_t prevPts, int64_t pts, bool known);
@@ -154,6 +172,13 @@ private:
   int64_t lastEvalMonoNs_ = -1;
   std::optional<int64_t> lastRecvMonoNs_;
   std::optional<int64_t> lastKnownRecvMonoNs_;
+  // Span since the last known frame covered by frames that could not be
+  // observed: media time in the current session, receive time across sessions.
+  int64_t coveredThroughPts_ = -1;
+  std::optional<int64_t> coveredThroughRecvNs_;
+  int64_t coveredPtsNs_ = 0;
+  int64_t coveredRecvNs_ = 0;
+  std::optional<int64_t> rearmSeedUtcMs_;
   int64_t frozenTotalNs_ = 0;
   int64_t clearingSincePts_ = 0;
   std::optional<int64_t> lastClearedPts_;

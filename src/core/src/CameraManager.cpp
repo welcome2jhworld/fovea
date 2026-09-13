@@ -2,6 +2,7 @@
 #include "fovea/Clock.h"
 #include "fovea/Ids.h"
 #include "fovea/Redact.h"
+#include "fovea/core/AnalysisTap.h"
 #include "fovea/core/CameraPipeline.h"
 #include "fovea/core/Store.h"
 #include <QJsonArray>
@@ -14,38 +15,10 @@
 #include <utility>
 #include <vector>
 
-#if defined(__APPLE__)
-#include <mach/mach.h>
-#elif defined(_WIN32)
-#include <windows.h>
-#include <psapi.h>
-#else
-#include <QFile>
-#endif
-
 namespace fovea::core {
 namespace {
 
 constexpr std::chrono::milliseconds kStopAllWait{10000};
-
-int64_t processRssBytes() {
-#if defined(__APPLE__)
-  mach_task_basic_info info{};
-  mach_msg_type_number_t count = MACH_TASK_BASIC_INFO_COUNT;
-  if (task_info(mach_task_self(), MACH_TASK_BASIC_INFO, reinterpret_cast<task_info_t>(&info), &count) != KERN_SUCCESS) return 0;
-  return static_cast<int64_t>(info.resident_size);
-#elif defined(_WIN32)
-  PROCESS_MEMORY_COUNTERS pmc{};
-  if (!GetProcessMemoryInfo(GetCurrentProcess(), &pmc, sizeof(pmc))) return 0;
-  return static_cast<int64_t>(pmc.WorkingSetSize);
-#else
-  QFile statm(QStringLiteral("/proc/self/statm"));
-  if (!statm.open(QIODevice::ReadOnly)) return 0;
-  const QList<QByteArray> fields = statm.readAll().simplified().split(' ');
-  if (fields.size() < 2) return 0;
-  return fields[1].toLongLong() * 4096;
-#endif
-}
 
 QString validateCamera(const Camera& c) {
   if (c.name.trimmed().isEmpty()) return QStringLiteral("name is required");
@@ -55,6 +28,8 @@ QString validateCamera(const Camera& c) {
   if (c.jitterMs < 100 || c.jitterMs > 5000) return QStringLiteral("jitter_ms must be between 100 and 5000");
   if (c.segmentSeconds < 5 || c.segmentSeconds > 600) return QStringLiteral("segment_seconds must be between 5 and 600");
   if (c.timeoutMs <= 0) return QStringLiteral("timeout_ms must be positive");
+  if (c.retentionDays < 1 || c.retentionDays > 3650) return QStringLiteral("retention_days must be between 1 and 3650");
+  if (c.maxBytes < 0) return QStringLiteral("max_bytes must not be negative");
   if (c.kind == QLatin1String("rtsp")) {
     const QUrl u(c.mainUrl);
     if (!u.isValid() || u.host().isEmpty() || !u.scheme().startsWith(QLatin1String("rtsp")))
@@ -112,6 +87,7 @@ struct CameraManager::Impl {
   std::map<QString, std::unique_ptr<CameraPipeline>> pipelines;
   // Stopped pipelines still finalizing their recordings; deleted once idle.
   std::map<QString, std::unique_ptr<CameraPipeline>> stopping;
+  std::map<QString, std::shared_ptr<AnalysisTap>> taps;
   std::function<void()> allStopped;
   bool started = false;
 
@@ -135,6 +111,13 @@ struct CameraManager::Impl {
     return QStringLiteral("CAM-") + newId().left(8);
   }
 
+  std::shared_ptr<AnalysisTap> tapFor(const Camera& c) {
+    std::shared_ptr<AnalysisTap>& tap = taps[c.id];
+    if (!tap) tap = std::make_shared<AnalysisTap>();
+    tap->setEnabled(c.enabled && c.analyticsEnabled);
+    return tap;
+  }
+
   // A pipeline that is still finalizing is reused, so its next session opens
   // only after the previous one has been torn down.
   void startPipeline(const Camera& c) {
@@ -145,11 +128,12 @@ struct CameraManager::Impl {
       stopping.erase(it);
       pipeline->reconfigure(c, secrets.get(c.id));
     } else {
-      pipeline = std::make_unique<CameraPipeline>(c, secrets.get(c.id), store, self->config(), self);
+      pipeline = std::make_unique<CameraPipeline>(c, secrets.get(c.id), store, self->config(), tapFor(c), self);
       QObject::connect(pipeline.get(), &CameraPipeline::statusChanged, self, &CameraManager::statusChanged);
       QObject::connect(pipeline.get(), &CameraPipeline::idleReached, self, [this](const QString& id) { reap(id); },
                        Qt::QueuedConnection);
     }
+    tapFor(c);
     pipeline->start();
     pipelines.emplace(c.id, std::move(pipeline));
   }
@@ -218,6 +202,11 @@ std::optional<Camera> CameraManager::camera(const QString& id) const {
   const Camera* c = impl_->find(id);
   if (!c) return std::nullopt;
   return *c;
+}
+
+std::shared_ptr<AnalysisTap> CameraManager::analysisTap(const QString& cameraId) const {
+  const auto it = impl_->taps.find(cameraId);
+  return it == impl_->taps.end() ? nullptr : it->second;
 }
 
 QVector<CameraStatus> CameraManager::statuses() const {
@@ -308,6 +297,7 @@ bool CameraManager::updateCamera(const Camera& update, const std::optional<Crede
   const bool restart = connectionFieldsChanged(*existing, c) || credentialsChanged;
   const bool wasEnabled = existing->enabled;
   *existing = c;
+  impl_->tapFor(c);
 
   auto it = impl_->pipelines.find(c.id);
   if (!c.enabled) {
@@ -330,11 +320,17 @@ bool CameraManager::deleteCamera(const QString& id, QString* error) {
     return false;
   }
   impl_->stopPipeline(id, QStringLiteral("stopped"));
-  if (!impl_->store.softDeleteCamera(id, utcNowMs())) {
+  MarkedEvidence marked;
+  if (!impl_->store.softDeleteCamera(id, utcNowMs(), &marked)) {
     if (error) *error = QStringLiteral("delete failed");
     return false;
   }
+  Store::removeEvidenceFiles(marked.thumbnails, config_.dataDir + QStringLiteral("/evidence"));
   impl_->secrets.remove(id);
+  if (const auto tap = impl_->taps.find(id); tap != impl_->taps.end()) {
+    tap->second->setEnabled(false);
+    impl_->taps.erase(tap);
+  }
   auto& cams = impl_->cameras;
   cams.erase(std::remove_if(cams.begin(), cams.end(), [&](const Camera& c) { return c.id == id; }), cams.end());
   qInfo("camera %s deleted", qPrintable(id));
@@ -353,6 +349,7 @@ bool CameraManager::setEnabled(const QString& id, bool enabled, QString* error) 
     c->updatedUtcMs = utcNowMs();
     impl_->store.updateCamera(*c);
   }
+  impl_->tapFor(*c);
   if (enabled) {
     if (impl_->started) impl_->startPipeline(*c);
   } else {
@@ -395,8 +392,7 @@ QJsonObject CameraManager::metrics() const {
     ringBytes += it->second->ringBytes();
   }
   return QJsonObject{{"cameras", cams},
-                     {"process", QJsonObject{{"rss_bytes", static_cast<double>(processRssBytes())},
-                                             {"ring_bytes", static_cast<double>(ringBytes)},
+                     {"process", QJsonObject{{"ring_bytes", static_cast<double>(ringBytes)},
                                              {"pipelines", static_cast<int>(impl_->pipelines.size())}}}};
 }
 

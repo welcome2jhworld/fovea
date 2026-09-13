@@ -48,3 +48,16 @@ Short records of choices that are not obvious from the code.
   fragment boundary; below the floor the record valve drops and the camera
   reports `paused_disk`. Resuming mid-session would splice a non-keyframe
   into the open file, so recording resumes on the next session start.
+- D10 Retention and the disk floor. Retention frees space from the floor plus
+  headroom (10 %, at least 16 MB) rather than from the floor itself, so the
+  pipelines, which pause below the floor and resume only above floor plus
+  headroom, never flap between paused and recording while old segments exist.
+  Space is freed across cameras only if every deletable segment together
+  could reach that target; otherwise nothing is deleted and `/v1/storage`
+  reports `floor_unreachable`, because wiping all recordings and still being
+  unable to record helps nobody (a disk filled by something else, or a floor
+  set above the volume size). One pass deletes at most 200 segments and
+  continues 500 ms later, so a large backlog never holds the API thread for
+  long. Evidence protection is a separate `evidence_holds` table keyed by
+  segment rather than a query over M3's evidence refs, so retention does not
+  depend on how evidence windows map to segments.

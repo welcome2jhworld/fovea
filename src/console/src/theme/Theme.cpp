@@ -86,6 +86,7 @@ QFont Theme::placeholderCaption(int surfaceHeight) {
 QString Theme::styleSheet() {
   using namespace tk::color;
   const QString monoFamily = QStringLiteral("\"%1\"").arg(tk::font::mono);
+  const QString sansFamily = QStringLiteral("\"%1\"").arg(tk::font::sans);
   QString qss = QStringLiteral(R"(
 QWidget#AppRoot { background: %bgApp%; }
 QWidget { color: %textPrimary%; }
@@ -150,11 +151,18 @@ QComboBox QLineEdit, QComboBox QLineEdit:focus { border: none; background: trans
   min-height: 30px; max-height: 30px; }
 QComboBox QAbstractItemView { background: %bgPanel%; border: 1px solid %lineStrong%; border-radius: 6px; padding: 4px;
   outline: 0; color: %textSecondary%; selection-background-color: %bgRaised%; selection-color: %textPrimary%; }
-QSpinBox { min-height: 32px; max-height: 32px; border-radius: 6px; background: %bgPanel%; border: 1px solid %line%;
+QSpinBox, QTimeEdit { min-height: 32px; max-height: 32px; border-radius: 6px; background: %bgPanel%; border: 1px solid %line%;
   padding: 0 12px; color: %textPrimary%; selection-background-color: %accent%; selection-color: %accentInk%; }
-QSpinBox:focus { border: 1px solid %accent%; }
-QSpinBox::up-button, QSpinBox::down-button { width: 0; border: none; }
-QLineEdit:disabled, QComboBox:disabled, QSpinBox:disabled { color: %textDisabled%; }
+QSpinBox:focus, QTimeEdit:focus { border: 1px solid %accent%; }
+QSpinBox::up-button, QSpinBox::down-button, QTimeEdit::up-button, QTimeEdit::down-button { width: 0; border: none; }
+QLineEdit:disabled, QComboBox:disabled, QSpinBox:disabled, QTimeEdit:disabled { color: %textDisabled%; }
+QLineEdit[surface="app"], QComboBox[surface="app"], QSpinBox[surface="app"], QTimeEdit[surface="app"] {
+  background: %bgApp%; min-height: 30px; max-height: 30px; padding: 0 10px; }
+QComboBox[surface="app"] QLineEdit { min-height: 28px; max-height: 28px; }
+QComboBox[tone="critical"] { color: %critical%; }
+QComboBox[tone="review"] { color: %warning%; }
+QComboBox[tone="info"] { color: %accent%; }
+QComboBox[variant="sm"] { min-height: 26px; max-height: 26px; border-radius: 5px; padding: 0 12px; }
 
 QTreeView#CameraTree { background: transparent; border: none; outline: 0; show-decoration-selected: 0;
   selection-background-color: transparent; }
@@ -207,6 +215,61 @@ QFrame#PasswordField QLineEdit, QFrame#PasswordField QLineEdit:focus { border: n
   font-family: %mono%; font-size: 13px; color: %textSecondary%; }
 QToolButton#RevealPassword { background: transparent; border: none; color: %textMuted%; padding: 0 2px; }
 
+QToolButton#OverlaysButton, QToolButton#RecordingsButton { min-height: 28px; max-height: 28px; padding: 0 12px;
+  border-radius: 6px; background: %bgPanel%; border: 1px solid %line%; color: %textSecondary%; font-size: 13px; }
+QToolButton#OverlaysButton:checked, QToolButton#RecordingsButton:checked { background: %bgRaised%;
+  border: 1px solid %lineStrong%; color: %textPrimary%; }
+
+#LiveEventFeed, #AlertDetail { background: %bgApp%; border-left: 1px solid %lineQuiet%; }
+#FeedHeader, #RulesHeader, #AlertToolbar, #DetailHeader { background: %bgApp%; border-bottom: 1px solid %lineQuiet%; }
+#FeedFooter, #RulesFooter { background: %bgApp%; border-top: 1px solid %lineQuiet%; }
+QListView#EventList, QListView#AlertList { background: transparent; border: none; outline: 0; }
+QListView#EventList::item, QListView#AlertList::item { background: transparent; border: none; padding: 0; }
+QListView#EventList::item:hover, QListView#EventList::item:selected,
+QListView#AlertList::item:hover, QListView#AlertList::item:selected { background: transparent; }
+QLabel#FeedEmpty, QLabel#AlertEmpty, QLabel#RulesEmpty, QLabel#DetailEmpty { color: %textSecondary%; }
+
+#AlertsScreen, #AlertTable { background: %bgApp%; }
+#SubTabBar { background: %bgApp%; border-bottom: 1px solid %lineQuiet%; }
+QToolButton[role="subtab"], QToolButton[role="status-tab"] { min-height: 26px; max-height: 26px; border-radius: 5px;
+  background: transparent; border: 1px solid transparent; color: %textSecondary%; font-size: 13px; }
+QToolButton[role="subtab"] { padding: 0 14px; }
+QToolButton[role="status-tab"] { padding: 0 12px; }
+QToolButton[role="subtab"]:checked, QToolButton[role="status-tab"]:checked { background: %bgRaised%;
+  border: 1px solid %lineStrong%; color: %textPrimary%; }
+QToolButton[role="subtab"]:checked { font-weight: 500; }
+
+#RulesRail { background: %bgApp%; border-right: 1px solid %lineQuiet%; }
+QScrollArea#RulesScroll, QScrollArea#DetailScroll { background: transparent; border: none; }
+QWidget#RulesList, QWidget#DetailBody { background: transparent; }
+QLabel#RulesCounts { color: %textDisabled%; }
+QLabel#RulesRange { color: %textMuted%; }
+QLabel#RuleCardName { font-weight: 600; color: %textPrimary%; }
+QLabel#RuleSentence { font-size: 12px; color: %textSecondary%; }
+QPushButton#RuleEdit { background: transparent; border: none; padding: 0; min-height: 0; max-height: 20px; font-size: 12px;
+  color: %textMuted%; }
+QPushButton#RuleEdit[editing="true"] { color: %accent%; }
+QPushButton#RuleTest, QPushButton#RuleCancel { padding: 0 12px; }
+QPushButton#RuleSave { padding: 0 14px; }
+QLabel[role="editor-label"] { font-size: 11px; color: %textMuted%; }
+QToolButton[role="day"] { background: %bgApp%; border: 1px solid %line%; border-radius: 4px; color: %textMuted%; padding: 0; }
+QToolButton[role="day"]:checked { background: %bgRaised%; border: 1px solid %accent%; color: %textPrimary%; }
+QToolButton[role="pager"] { background: transparent; border: 1px solid transparent; border-radius: 5px;
+  color: %textSecondary%; font-family: %mono%; font-size: 12px; padding: 0; }
+QToolButton[role="pager"][current="true"] { background: %bgRaised%; border: 1px solid %accent%; color: %textPrimary%; }
+QToolButton[role="pager"][arrow="true"] { background: %bgPanel%; border: 1px solid %line%; color: %textPrimary%;
+  font-family: %sans%; }
+QToolButton[role="pager"]:disabled { color: %textDisabled%; }
+QLabel#RuleEditorError, QLabel#DetailError { font-size: 12px; }
+
+QWidget#DetailRule { background: %lineQuiet%; }
+QLabel#DetailTitle { color: %textPrimary%; }
+QLabel#DetailSecondary, QLabel#DetailActivity { font-size: 12px; color: %textSecondary%; }
+QWidget#MetaRow { background: transparent; border-bottom: 1px solid %lineRow%; }
+QLabel#MetaKey { font-size: 12px; color: %textMuted%; }
+QLabel#MetaValue { color: %textPrimary%; }
+QPushButton#ReviewButton:checked { background: %bgRaised%; border: 1px solid %accent%; color: %textPrimary%; }
+
 #RecordingsPanel { background: %bgApp%; border-left: 1px solid %lineQuiet%; }
 #RecordingsHeader { background: %bgApp%; border-bottom: 1px solid %lineQuiet%; }
 QListView#RecordingsList { background: transparent; border: none; outline: 0; }
@@ -215,14 +278,14 @@ QListView#RecordingsList::item:hover, QListView#RecordingsList::item:selected { 
 QLabel#RecordingsMessage { color: %textSecondary%; }
 )");
   const struct { const char* key; QString value; } subs[] = {
-      {"%mono%", monoFamily}, {"%buttonSizes%", buttonSizes()},
+      {"%mono%", monoFamily}, {"%sans%", sansFamily}, {"%buttonSizes%", buttonSizes()},
       {"%bgDeep%", QString(bgDeep)}, {"%bgApp%", QString(bgApp)}, {"%bgPanel%", QString(bgPanel)},
       {"%bgRaised%", QString(bgRaised)}, {"%bgVideo%", QString(bgVideo)}, {"%line%", QString(line)},
       {"%lineStrong%", QString(lineStrong)}, {"%lineQuiet%", QString(lineQuiet)},
       {"%textPrimary%", QString(textPrimary)}, {"%textSecondary%", QString(textSecondary)},
       {"%textMuted%", QString(textMuted)}, {"%textDisabled%", QString(textDisabled)},
       {"%accent%", QString(accent)}, {"%accentInk%", QString(accentInk)}, {"%critical%", QString(critical)},
-      {"%positive%", QString(positive)}};
+      {"%positive%", QString(positive)}, {"%warning%", QString(warning)}, {"%lineRow%", QString(lineRow)}};
   for (const auto& s : subs) qss.replace(QLatin1StringView(s.key), s.value);
   return qss;
 }

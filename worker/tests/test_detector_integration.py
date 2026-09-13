@@ -55,6 +55,8 @@ class RfDetrIntegrationTest(unittest.TestCase):
         self.assertEqual(len(result.frames), 1)
         self.assertEqual((result.frames[0].width, result.frames[0].height), (640, 360))
         self.assertEqual(len(result.per_frame_ms), 1)
+        if os.environ.get("FOVEA_DETECTOR_TRACE", "1") != "0":
+            self.assertTrue(self.detector.model._is_optimized_for_inference, result.notes)
 
     @unittest.skipUnless(FRAMES_DIR and Path(FRAMES_DIR).is_dir(), "FOVEA_TEST_FRAMES_DIR not set")
     def test_real_frames_detect_car_with_stable_track(self):
