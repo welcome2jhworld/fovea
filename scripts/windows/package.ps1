@@ -20,14 +20,11 @@ if (Test-Path $Out) { Remove-Item -Recurse -Force $Out }
 $Bin = "$Out\bin"
 New-Item -ItemType Directory -Force -Path $Bin, "$Out\lib\gstreamer-1.0", "$Out\libexec\gstreamer-1.0" | Out-Null
 
-$exes = @(
-  "$BuildDir\src\console\fovea.exe",
-  "$BuildDir\src\core\fovea-core.exe",
-  "$BuildDir\tools\rtsp-testsrc\rtsp-testsrc.exe"
-)
-foreach ($e in $exes) {
-  if (-not (Test-Path $e)) { throw "missing $e" }
-  Copy-Item $e $Bin
+# qt_standard_project_setup places Windows executables in the top build directory; search by name.
+foreach ($name in @("fovea.exe", "fovea-core.exe", "rtsp-testsrc.exe")) {
+  $found = Get-ChildItem -Path $BuildDir -Recurse -Filter $name -File | Where-Object { $_.FullName -notmatch "\\CMakeFiles\\" } | Select-Object -First 1
+  if (-not $found) { throw "missing $name under $BuildDir" }
+  Copy-Item $found.FullName $Bin
 }
 
 & "$QtRoot\bin\windeployqt.exe" --release --no-translations --no-system-d3d-compiler --no-opengl-sw --dir $Bin "$Bin\fovea.exe" "$Bin\fovea-core.exe"

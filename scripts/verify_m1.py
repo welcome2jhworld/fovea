@@ -50,8 +50,8 @@ class Verifier:
             self.core = bin_dir / f"fovea-core{EXE}"
             self.testsrc = bin_dir / f"rtsp-testsrc{EXE}"
         else:
-            self.core = bin_dir / "src" / "core" / f"fovea-core{EXE}"
-            self.testsrc = bin_dir / "tools" / "rtsp-testsrc" / f"rtsp-testsrc{EXE}"
+            self.core = self._find(bin_dir, [Path("src/core"), Path(".")], f"fovea-core{EXE}")
+            self.testsrc = self._find(bin_dir, [Path("tools/rtsp-testsrc"), Path(".")], f"rtsp-testsrc{EXE}")
         self.work = Path(args.work_dir).resolve()
         self.data = self.work / "data"
         self.port = args.rtsp_port
@@ -62,6 +62,14 @@ class Verifier:
         self.api_port = 0
         self.token = ""
         self.results: dict = {"platform": sys.platform, "source": args.source}
+
+    @staticmethod
+    def _find(root: Path, subdirs: list[Path], name: str) -> Path:
+        for sub in subdirs:
+            candidate = root / sub / name
+            if candidate.exists():
+                return candidate
+        return root / subdirs[0] / name
 
     def log(self, msg: str) -> None:
         line = f"{time.strftime('%H:%M:%S')} {msg}"

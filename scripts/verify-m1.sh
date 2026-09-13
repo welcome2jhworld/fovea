@@ -1,18 +1,20 @@
 #!/bin/sh
-# M1 integration verification: local RTSP source -> core -> recording -> reconnect -> playback.
+# M1 integration verification: local RTSP source -> core -> recording -> reconnect -> playback -> crash recovery.
 # Usage: scripts/verify-m1.sh [--webcam]   (report written to docs/verification/)
+# Env: BUILD (default build/macos-dev), FOVEA_VERIFY_DIR (default build/verify-m1), FOVEA_RTSP_PORT (default 8554).
 set -eu
 cd "$(dirname "$0")/.."
 . ./scripts/env.sh
 ROOT="$(pwd)"
-BUILD="$ROOT/build/macos-dev"
+abspath() { case "$1" in /*) echo "$1" ;; *) echo "$ROOT/$1" ;; esac; }
+BUILD="$(abspath "${BUILD:-build/macos-dev}")"
 CORE="$BUILD/src/core/fovea-core"
 TESTSRC="$BUILD/tools/rtsp-testsrc/rtsp-testsrc"
 PY="${PYTHON:-/opt/homebrew/bin/python3.12}"
-WORK="${FOVEA_VERIFY_DIR:-$ROOT/build/verify-m1}"
+WORK="$(abspath "${FOVEA_VERIFY_DIR:-build/verify-m1}")"
 rm -rf "$WORK"; mkdir -p "$WORK/data"
 CLIP="$WORK/clip.mp4"
-PORT=8554
+PORT="${FOVEA_RTSP_PORT:-8554}"
 URL="rtsp://127.0.0.1:$PORT/test"
 REPORT="$WORK/report.json"
 LOG="$WORK/verify.log"
@@ -55,12 +57,16 @@ log "generating clip"
 log "starting rtsp test source ($SOURCE_MODE)"
 start_source
 log "starting core"
-FOVEA_MIN_FREE_MB=50 "$CORE" --data-dir "$WORK/data" --port 0 >"$WORK/core.log" 2>&1 &
-CORE_PID=$!
-for i in $(seq 1 40); do [ -f "$WORK/data/core.json" ] && break; sleep 0.25; done
-[ -f "$WORK/data/core.json" ] || fail "core.json not written"
-CPORT=$(jget "d['port']" < "$WORK/data/core.json")
-TOKEN=$(cat "$WORK/data/core.token")
+start_core() { # log-file
+  rm -f "$WORK/data/core.json"
+  FOVEA_MIN_FREE_MB=50 "$CORE" --data-dir "$WORK/data" --port 0 >"$WORK/$1" 2>&1 &
+  CORE_PID=$!
+  for i in $(seq 1 40); do [ -f "$WORK/data/core.json" ] && break; sleep 0.25; done
+  [ -f "$WORK/data/core.json" ] || fail "core.json not written"
+  CPORT=$(jget "d['port']" < "$WORK/data/core.json")
+  TOKEN=$(cat "$WORK/data/core.token")
+}
+start_core core.log
 log "core on port $CPORT"
 
 HEALTH=$(api GET /v1/health)
@@ -83,6 +89,30 @@ wait_state() { # expected-state timeout-s
     sleep 0.25
   done
   echo "$S"; return 1
+}
+
+# Every finalized segment must sit on its session's pts -> UTC mapping.
+check_segment_times() {
+  SESS=$(api GET "/v1/cameras/$CAMID/sessions")
+  SEGS=$(api GET "/v1/cameras/$CAMID/segments")
+  BAD=$("$PY" -c '
+import json, sys
+sessions = {s["id"]: s for s in json.loads(sys.argv[1])}
+bad = []
+for g in json.loads(sys.argv[2]):
+    if g["state"] != "finalized":
+        continue
+    s = sessions.get(g["session_id"])
+    if s is None or s["first_pts_ns"] < 0:
+        bad.append(g["id"] + ": session has no anchor")
+        continue
+    expected = s["started_utc_ms"] + (g["start_pts_ns"] - s["first_pts_ns"]) / 1e6
+    if abs(g["start_utc_ms"] - expected) > 5:
+        bad.append("%s: start_utc_ms %d, session mapping %.1f" % (g["id"], g["start_utc_ms"], expected))
+print("; ".join(bad))
+' "$SESS" "$SEGS")
+  [ -z "$BAD" ] || fail "segment UTC off the session mapping: $BAD"
+  log "segment start times match their session mapping ($(echo "$SEGS" | jget "sum(1 for s in d if s['state']=='finalized')") finalized)"
 }
 
 log "waiting for frames"
@@ -118,7 +148,9 @@ for i in $(seq 1 60); do
 done
 [ "$ST" != "online" ] || fail "camera stayed online after source stop"
 DISC_T1=$(date +%s)
-log "state after source stop: $ST (detected in $((DISC_T1-DISC_T0)) s), stale=$(echo "$S" | jget "d['stale']") age_ms=$(echo "$S" | jget "d['last_frame_age_ms']")"
+AGE=$(echo "$S" | jget "d['last_frame_age_ms']")
+log "state after source stop: $ST (detected in $((DISC_T1-DISC_T0)) s), stale=$(echo "$S" | jget "d['stale']") age_ms=$AGE"
+[ "$AGE" -ge 0 ] || fail "last_frame_age_ms is $AGE after frames were received"
 sleep 3
 GAPS=$(api GET "/v1/cameras/$CAMID/gaps")
 NGAP=$(echo "$GAPS" | jget "len(d)")
@@ -135,7 +167,23 @@ log "reconnected in $((REC_T1-REC_T0)) s, new session=$SESSION2 reconnects=$(ech
 sleep 2
 GAPS=$(api GET "/v1/cameras/$CAMID/gaps")
 NCLOSED=$(echo "$GAPS" | jget "sum(1 for g in d if g['to_utc_ms']>0)")
-log "gaps: $(echo "$GAPS" | jget "len(d)") total, $NCLOSED closed"
+NGAP=$(echo "$GAPS" | jget "len(d)")
+log "gaps: $NGAP total, $NCLOSED closed"
+[ "$NCLOSED" -ge 1 ] || fail "no receive gap was closed after reconnect: $GAPS"
+[ "$NCLOSED" -eq "$NGAP" ] || fail "receive gaps left open after reconnect: $GAPS"
+check_segment_times
+
+log "restarting the pipeline via PUT: the frame ring must be renamed for the new session"
+OLDRING=$(echo "$S" | jget "d['frame_ring']['name']")
+api PUT "/v1/cameras/$CAMID" '{"jitter_ms":1200}' >/dev/null
+S=$(wait_state online 30) || fail "camera not back online after PUT: $S"
+SESSION3=$(echo "$S" | jget "d['session_id']")
+NEWRING=$(echo "$S" | jget "d['frame_ring']['name']")
+[ "$SESSION3" != "$SESSION2" ] || fail "PUT restart kept session $SESSION2"
+[ "$NEWRING" != "$OLDRING" ] || fail "PUT restart kept ring name $OLDRING"
+"$PY" scripts/ring_probe.py "$OLDRING" 0.2 >/dev/null 2>&1 && fail "previous session's ring $OLDRING still exists"
+RINGSTAT=$("$PY" scripts/ring_probe.py "$NEWRING" 2) || fail "no frames in the new session's ring $NEWRING"
+log "ring renamed $OLDRING -> $NEWRING, old ring gone, new ring: $RINGSTAT"
 
 log "playback of segment $SEGID"
 PB=$(api POST /v1/playback "{\"segment_id\":\"$SEGID\"}")
@@ -162,10 +210,7 @@ CORE_PID=""
 [ ! -f "$WORK/data/core.json" ] || fail "core.json left behind"
 
 log "restart core to check recovery and segment states"
-"$CORE" --data-dir "$WORK/data" --port 0 >"$WORK/core2.log" 2>&1 &
-CORE_PID=$!
-for i in $(seq 1 40); do [ -f "$WORK/data/core.json" ] && break; sleep 0.25; done
-CPORT=$(jget "d['port']" < "$WORK/data/core.json")
+start_core core2.log
 sleep 1
 SEGS=$(api GET "/v1/cameras/$CAMID/segments")
 CURSESSION=$(api GET "/v1/cameras/$CAMID/status" | jget "d['session_id']")
@@ -176,8 +221,48 @@ NFIN=$(echo "$SEGS" | jget "sum(1 for s in d if s['state']=='finalized')")
 log "after restart: finalized=$NFIN damaged=$NDMG stale-recording=$NREC open-in-new-session=$NLIVE"
 [ "$NREC" -eq 0 ] || fail "segments from earlier sessions still marked recording after restart"
 grep -i 'recovery:' "$WORK/core2.log" | tail -1 | tee -a "$LOG"
+check_segment_times
+
+log "waiting for a segment that has been recording for 4 s, then killing the core with SIGKILL"
+S=$(wait_state online 30) || fail "camera not online after restart: $S"
+CRASHSEG=""
+for i in $(seq 1 120); do
+  SEGS=$(api GET "/v1/cameras/$CAMID/segments")
+  CRASHSEG=$(echo "$SEGS" | "$PY" -c '
+import json, sys, time
+now = int(time.time() * 1000)
+open_segs = [s for s in json.load(sys.stdin) if s["state"] == "recording" and now - s["created_utc_ms"] >= 4000]
+print(open_segs[0]["id"] if open_segs else "")
+')
+  [ -n "$CRASHSEG" ] && break
+  sleep 0.25
+done
+[ -n "$CRASHSEG" ] || fail "no segment stayed in recording for 4 s: $SEGS"
+kill -9 "$CORE_PID"; wait "$CORE_PID" 2>/dev/null || true; CORE_PID=""
+start_core core3.log
+sleep 1
+RECOVERY=$(grep -i 'recovery:' "$WORK/core3.log" | tail -1)
+log "after SIGKILL: $RECOVERY"
+NFINREC=$(echo "$RECOVERY" | sed -n 's/.*segments finalized \([0-9]*\).*/\1/p')
+[ "${NFINREC:-0}" -ge 1 ] || fail "recovery finalized no segment after SIGKILL: $RECOVERY"
+SEG=$(api GET "/v1/segments/$CRASHSEG")
+CHECK=$(echo "$SEG" | jget "'ok' if d['state']=='finalized' and d['end_utc_ms']>d['start_utc_ms'] and d['bytes']>0 else d")
+[ "$CHECK" = "ok" ] || fail "segment cut by SIGKILL not recovered: $SEG"
+log "recovered segment $CRASHSEG: $(echo "$SEG" | jget "'%.1f s, %d bytes' % ((d['end_pts_ns']-d['start_pts_ns'])/1e9, d['bytes'])")"
+GAPS=$(api GET "/v1/cameras/$CAMID/gaps")
+NOPEN=$(echo "$GAPS" | jget "sum(1 for g in d if g['to_utc_ms']==0)")
+[ "$NOPEN" -eq 0 ] || fail "receive gaps still open after recovery: $GAPS"
+CURSESSION=$(api GET "/v1/cameras/$CAMID/status" | jget "d['session_id']")
+NOPENSESS=$(api GET "/v1/cameras/$CAMID/sessions" | jget "sum(1 for s in d if s['ended_utc_ms']==0 and s['id']!='$CURSESSION')")
+[ "$NOPENSESS" -eq 0 ] || fail "sessions from before the crash left open"
+check_segment_times
+api POST /v1/service/shutdown >/dev/null
+for i in $(seq 1 40); do kill -0 "$CORE_PID" 2>/dev/null || break; sleep 0.25; done
+kill -0 "$CORE_PID" 2>/dev/null && fail "core did not exit after shutdown"
+CORE_PID=""
 
 cleanup
+log "PASS"
 "$PY" - "$REPORT" "$LOG" <<'PYEOF'
 import json, sys, re, datetime
 report, log = sys.argv[1], sys.argv[2]
@@ -186,4 +271,3 @@ json.dump({"generated_utc": datetime.datetime.now(datetime.UTC).isoformat(), "li
 PYEOF
 mkdir -p docs/verification
 cp "$LOG" "docs/verification/m1-$(date -u +%Y%m%d-%H%M%S).log"
-log "PASS"
