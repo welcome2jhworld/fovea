@@ -1,4 +1,5 @@
 qt_add_executable(test_rule_evaluator test_rule_evaluator.cpp)
+fovea_console_executable(test_rule_evaluator)
 target_link_libraries(test_rule_evaluator PRIVATE fovea-rules Qt6::Test)
 fovea_target_warnings(test_rule_evaluator)
 add_test(NAME test_rule_evaluator COMMAND test_rule_evaluator)

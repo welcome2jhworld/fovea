@@ -2,7 +2,7 @@
 
 Bind: `127.0.0.1` on a random free port. Discovery file: `<data>/core.json`
 `{ "port": 43123, "pid": 12345, "started_utc_ms": ..., "version": "0.1.0" }`.
-Token file: `<data>/core.token` (0600). Every request carries
+Token file: `<data>/core.token` (0600). On Windows the data directory lives under `%LOCALAPPDATA%`, whose inherited ACL already limits access to the user, SYSTEM and administrators; Qt file permissions cannot express ACLs, so the POSIX mode checks in the tests are skipped there. Every request carries
 `Authorization: Bearer <token>`; missing or wrong token returns 401.
 Bodies and responses are JSON. Errors: `{ "error": { "code": "...", "message": "..." } }`.
 

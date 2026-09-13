@@ -149,8 +149,10 @@ void TestStore::secretsFilePermissionsAndRoundTrip() {
   QVERIFY(secrets.set("cam1", {"admin", "pw"}));
   QCOMPARE(secrets.get("cam1")->password, QString("pw"));
   const auto perms = QFile(dir.path() + "/secrets.json").permissions();
+#ifndef Q_OS_WIN
   QVERIFY(!(perms & QFileDevice::ReadGroup));
   QVERIFY(!(perms & QFileDevice::ReadOther));
+#endif
   QVERIFY(secrets.remove("cam1"));
   QVERIFY(!secrets.get("cam1").has_value());
 }

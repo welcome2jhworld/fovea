@@ -14,8 +14,10 @@ private slots:
     QCOMPARE(fovea::loadOrCreateToken(path), t1);
     QCOMPARE(fovea::loadToken(path), t1);
     const auto perms = QFile(path).permissions();
+#ifndef Q_OS_WIN
     QVERIFY(!(perms & QFileDevice::ReadGroup));
     QVERIFY(!(perms & QFileDevice::ReadOther));
+#endif
   }
   void constantTimeCompare() {
     QVERIFY(fovea::tokenEquals("abc", "abc"));
