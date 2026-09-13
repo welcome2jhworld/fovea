@@ -52,7 +52,12 @@ In progress: natural-language search (M4), Windows verification of M2 and M3.
    ```
    Then **+ Add** in the console with that URL, or your camera's
    `rtsp://user:pass@ip:554/...` URL.
-4. Self test (needs Python 3.10+): `python verify_m1.py --bin-dir bin --flat`
+4. Detection and alerts (optional): run `Setup-Worker.cmd` once (needs Python
+   3.12 and internet). It installs PyTorch (CUDA build when an NVIDIA GPU is
+   present) and the RF-DETR detector into `worker\.venv`; the service picks it
+   up on its next start. Then enable "Run analytics on this camera" and create
+   a rule with a zone under **Alerts & Analytics**.
+5. Self test (needs Python 3.10+): `python verify_m1.py --bin-dir bin --flat`
 
 Data lives in `%LOCALAPPDATA%\Fovea` (override with `FOVEA_DATA_DIR`).
 

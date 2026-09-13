@@ -55,6 +55,14 @@ $crt = Get-ChildItem -Path "$env:VCToolsRedistDir\x64" -Directory -Filter "Micro
 if ($crt) { Copy-Item "$($crt.FullName)\*.dll" $Bin } else { Write-Warning "MSVC runtime DLLs not found; target machines need the VC++ 2015-2022 redistributable" }
 
 foreach ($f in @("LICENSE", "THIRD_PARTY_NOTICES.md")) { if (Test-Path $f) { Copy-Item $f $Out } }
+
+# Model worker source; Setup-Worker.cmd creates worker\.venv, which fovea-core finds by walking up from bin.
+New-Item -ItemType Directory -Force -Path "$Out\worker", "$Out\scripts\windows" | Out-Null
+Copy-Item "worker\pyproject.toml", "worker\README.md" "$Out\worker\"
+Copy-Item -Recurse "worker\fovea_worker" "$Out\worker\fovea_worker"
+Get-ChildItem -Path "$Out\worker" -Recurse -Directory -Filter "__pycache__" | Remove-Item -Recurse -Force
+Copy-Item "scripts\windows\setup-worker.ps1" "$Out\scripts\windows\"
+"@echo off`r`npowershell -NoProfile -ExecutionPolicy Bypass -File `"%~dp0scripts\windows\setup-worker.ps1`" %*`r`npause`r`n" | Out-File -FilePath "$Out\Setup-Worker.cmd" -Encoding ascii -NoNewline
 Copy-Item "scripts\verify_m1.py" $Out
 "@echo off`r`nstart `"`" `"%~dp0bin\fovea.exe`" %*`r`n" | Out-File -FilePath "$Out\Fovea.cmd" -Encoding ascii -NoNewline
 @"
@@ -71,6 +79,14 @@ Local test camera without hardware (from this folder):
   bin\rtsp-testsrc.exe --webcam              -> this PC's webcam over RTSP
   bin\rtsp-testsrc.exe --list-devices
 Add the URL in the console with "+ Add".
+
+Detection and alerts (optional, needs Python 3.12 and internet once):
+  Setup-Worker.cmd
+This creates worker\.venv with PyTorch (CUDA build when an NVIDIA GPU is
+present) and the RF-DETR detector. fovea-core finds it automatically on the
+next start. The detector weights (about 370 MB) download on first use.
+Then open Alerts & Analytics, create a rule with a zone on a camera that has
+"Run analytics on this camera" enabled.
 
 Self test (Python 3.10+ on PATH):
   python verify_m1.py --bin-dir bin --flat
