@@ -28,16 +28,17 @@ soak and retention (M2), natural-language search (M4).
 1. Download `fovea-windows-x64.zip` from the latest
    [CI run](../../actions/workflows/ci.yml) (Artifacts) or from
    [Releases](../../releases).
-2. Unzip anywhere and run `fovea.exe`. The service `fovea-core.exe` starts in
-   the background; closing the window keeps recording.
-3. No camera at hand? In a terminal in the same folder:
+2. Unzip anywhere and run `Fovea.cmd` (or `bin\fovea.exe`). The service
+   `fovea-core.exe` starts in the background; closing the window keeps
+   recording.
+3. No camera at hand? In a terminal in the unzipped folder:
    ```
-   rtsp-testsrc.exe --pattern ball      # rtsp://127.0.0.1:8554/test
-   rtsp-testsrc.exe --webcam            # your webcam as an RTSP camera
+   bin\rtsp-testsrc.exe --pattern ball      # rtsp://127.0.0.1:8554/test
+   bin\rtsp-testsrc.exe --webcam            # your webcam as an RTSP camera
    ```
    Then **+ Add** in the console with that URL, or your camera's
    `rtsp://user:pass@ip:554/...` URL.
-4. Self test (needs Python 3.10+): `python verify_m1.py --bin-dir . --flat`
+4. Self test (needs Python 3.10+): `python verify_m1.py --bin-dir bin --flat`
 
 Data lives in `%LOCALAPPDATA%\Fovea` (override with `FOVEA_DATA_DIR`).
 

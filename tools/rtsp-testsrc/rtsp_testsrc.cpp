@@ -42,7 +42,7 @@ const GOptionEntry kEntries[] = {
     {"port", 'p', 0, G_OPTION_ARG_INT, &opt.port, "Listen port on 127.0.0.1 (0 = ephemeral)", "8554"},
     {"path", 0, 0, G_OPTION_ARG_STRING, &opt.path, "Mount path", "/test"},
     {"file", 'f', 0, G_OPTION_ARG_FILENAME, &opt.file, "Serve an H.264 MP4/MOV file instead of a test pattern", "FILE"},
-    {"webcam", 0, 0, G_OPTION_ARG_NONE, &opt.webcam, "Serve a capture device (avfvideosrc on macOS) instead of a test pattern", nullptr},
+    {"webcam", 0, 0, G_OPTION_ARG_NONE, &opt.webcam, "Serve a capture device (avfvideosrc on macOS, mfvideosrc on Windows) instead of a test pattern", nullptr},
     {"device-index", 0, 0, G_OPTION_ARG_INT, &opt.device_index, "Capture device for --webcam (see --list-devices)", "0"},
     {"list-devices", 0, 0, G_OPTION_ARG_NONE, &opt.list_devices, "List video capture devices and exit", nullptr},
     {"pattern", 0, 0, G_OPTION_ARG_STRING, &opt.pattern, "videotestsrc pattern (smpte, ball, snow, ...)", "ball"},
@@ -68,7 +68,9 @@ constexpr const char* kCameraDeviceArg = "device-index=";
 // ("Unknown OSType format: 32", GStreamer 1.26.1). NV12 is also vtenc_h264's native input.
 constexpr const char* kCameraFormat = ",format=NV12";
 #elif defined(_WIN32)
-constexpr const char* kCameraFactory = "ksvideosrc";
+// mfvideosrc (Media Foundation) replaces the deprecated ksvideosrc; the latter is the fallback.
+constexpr const char* kCameraFactory = "mfvideosrc";
+constexpr const char* kCameraFallbackFactory = "ksvideosrc";
 constexpr const char* kCameraDeviceArg = "device-index=";
 constexpr const char* kCameraFormat = "";
 #else
@@ -197,13 +199,25 @@ int list_devices() {
   return 0;
 }
 
-std::string x264_encoder() {
-  return "x264enc tune=zerolatency speed-preset=ultrafast bframes=0 key-int-max=" + std::to_string(opt.keyint) +
-         " bitrate=" + std::to_string(opt.bitrate_kbps);
+// x264 is GPL and may be absent from a distribution; OpenH264 and Media Foundation cover that case.
+std::string software_encoder() {
+  const std::string keyint = std::to_string(opt.keyint);
+  if (have_element("x264enc")) {
+    return "x264enc tune=zerolatency speed-preset=ultrafast bframes=0 key-int-max=" + keyint +
+           " bitrate=" + std::to_string(opt.bitrate_kbps);
+  }
+  if (have_element("openh264enc")) {
+    return "openh264enc complexity=low rate-control=bitrate gop-size=" + keyint +
+           " bitrate=" + std::to_string(opt.bitrate_kbps * 1000);
+  }
+  if (have_element("mfh264enc")) {
+    return "mfh264enc low-latency=true bframes=0 gop-size=" + keyint + " bitrate=" + std::to_string(opt.bitrate_kbps);
+  }
+  return "x264enc";
 }
 
 std::string webcam_encoder() {
-  if (!have_element("vtenc_h264")) return x264_encoder();
+  if (!have_element("vtenc_h264")) return software_encoder();
   return "vtenc_h264 realtime=true allow-frame-reordering=false max-keyframe-interval=" +
          std::to_string(opt.keyint) + " bitrate=" + std::to_string(opt.bitrate_kbps);
 }
@@ -214,7 +228,12 @@ std::string webcam_encoder() {
 std::string camera_source(Size source) {
   std::string caps = std::string("video/x-raw") + kCameraFormat + ",pixel-aspect-ratio=1/1";
   if (source.width > 0) caps += ",width=" + std::to_string(source.width) + ",height=" + std::to_string(source.height);
-  return std::string(kCameraFactory) + " " + kCameraDeviceArg + std::to_string(opt.device_index) + " ! " + caps;
+#if defined(_WIN32)
+  const char* factory = have_element(kCameraFactory) ? kCameraFactory : kCameraFallbackFactory;
+#else
+  const char* factory = kCameraFactory;
+#endif
+  return std::string(factory) + " " + kCameraDeviceArg + std::to_string(opt.device_index) + " ! " + caps;
 }
 
 std::string raw_caps() {
@@ -226,7 +245,7 @@ std::string build_launch(bool overlay, Size camera) {
   std::string s = "( ";
   if (opt.file) {
     s += "filesrc location=\"" + std::string(opt.file) + "\" ! qtdemux name=demux ! h264parse ! ";
-    if (overlay) s += "avdec_h264 ! videoconvert ! " + std::string(kOverlay) + " ! " + x264_encoder() + " ! ";
+    if (overlay) s += "avdec_h264 ! videoconvert ! " + std::string(kOverlay) + " ! " + software_encoder() + " ! ";
   } else if (opt.webcam) {
     s += camera_source(camera) + " ! videoconvert ! videoscale ! videorate skip-to-first=true ! " + raw_caps() +
          ",pixel-aspect-ratio=1/1 ! ";
@@ -236,7 +255,7 @@ std::string build_launch(bool overlay, Size camera) {
     s += "videotestsrc is-live=true pattern=" + std::string(opt.pattern ? opt.pattern : "ball") + " ! " + raw_caps() +
          " ! ";
     if (overlay) s += std::string(kOverlay) + " ! ";
-    s += "videoconvert ! " + x264_encoder() + " ! ";
+    s += "videoconvert ! " + software_encoder() + " ! ";
   }
   return s + kPayloader + " )";
 }

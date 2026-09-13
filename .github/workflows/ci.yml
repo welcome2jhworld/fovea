@@ -73,13 +73,23 @@ jobs:
         shell: pwsh
         run: ./scripts/windows/package.ps1 -BuildDir build\windows-msvc -Out dist\fovea
 
+      - name: Check bundled GStreamer plugins
+        shell: pwsh
+        run: |
+          $env:PATH = "$pwd\dist\fovea\bin;C:\Windows\System32;C:\Windows"
+          $env:GSTREAMER_1_0_ROOT_MSVC_X86_64 = ""
+          foreach ($e in @("rtspsrc", "rtph264depay", "h264parse", "avdec_h264", "splitmuxsink", "matroskamux", "matroskademux", "appsink", "videoconvert", "videoscale", "jpegenc", "parsebin", "x264enc", "openh264enc", "mfvideosrc", "mfh264enc", "d3d11h264dec")) {
+            & dist\fovea\bin\gst-inspect-1.0.exe --exists $e
+            "{0,-16} {1}" -f $e, $(if ($LASTEXITCODE -eq 0) { "ok" } else { "MISSING" })
+          }
+
       - name: Verify packaged build (M1 flow, clean PATH)
         shell: pwsh
         run: |
           $py = (Get-Command python).Source
           $env:PATH = "C:\Windows\System32;C:\Windows"
           $env:GSTREAMER_1_0_ROOT_MSVC_X86_64 = ""
-          & $py scripts/verify_m1.py --bin-dir dist\fovea --flat --source pattern --work-dir build\verify-m1 --report dist\verify-m1-windows.json
+          & $py scripts/verify_m1.py --bin-dir dist\fovea\bin --flat --source pattern --work-dir build\verify-m1 --report dist\verify-m1-windows.json
 
       - name: Upload verification logs
         if: always()
