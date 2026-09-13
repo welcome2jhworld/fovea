@@ -1,0 +1,27 @@
+function(fovea_add_test name)
+  qt_add_executable(${name} ${ARGN})
+  target_link_libraries(${name} PRIVATE fovea-common Qt6::Test)
+  fovea_target_warnings(${name})
+  add_test(NAME ${name} COMMAND ${name})
+endfunction()
+
+fovea_add_test(test_frame_ring test_frame_ring.cpp)
+fovea_add_test(test_backoff test_backoff.cpp)
+fovea_add_test(test_redact test_redact.cpp)
+fovea_add_test(test_token test_token.cpp)
+fovea_add_test(test_api_json test_api_json.cpp)
+
+qt_add_executable(test_store test_store.cpp)
+target_link_libraries(test_store PRIVATE fovea-core-lib Qt6::Test)
+fovea_target_warnings(test_store)
+add_test(NAME test_store COMMAND test_store)
+
+qt_add_executable(test_session_clock test_session_clock.cpp)
+target_link_libraries(test_session_clock PRIVATE fovea-core-lib Qt6::Test)
+fovea_target_warnings(test_session_clock)
+add_test(NAME test_session_clock COMMAND test_session_clock)
+
+qt_add_executable(test_media_probe test_media_probe.cpp)
+target_link_libraries(test_media_probe PRIVATE fovea-core-lib Qt6::Test)
+fovea_target_warnings(test_media_probe)
+add_test(NAME test_media_probe COMMAND test_media_probe)

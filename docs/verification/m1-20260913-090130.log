@@ -1,0 +1,24 @@
+09:00:48 generating clip
+09:00:48 starting rtsp test source (file)
+09:00:50 starting core
+09:00:50 core on port 64047
+09:00:51 camera 5bbbe116-0b44-4769-abde-e72f89cf82a3
+09:00:51 waiting for frames
+09:00:51 online session=2462da4d-a096-4d8a-92f7-39121e4a7c03 fps=10 latency={'p50': 12.080333, 'p95': 16.132292, 'p99': 16.132292} ring=fv-2f213e9f47e04e78
+09:00:51 sampling shared-memory ring for 3 s
+09:00:55 ring: {"frames": 76, "fps": 25.3, "size": [640, 360], "latency_ms_p50": -1304452306.891375, "latency_ms_p95": -1304452304.687042, "writer_pid": 28610, "slots": 3}
+09:00:55 waiting for 2 finalized segments (segment_seconds=10)
+09:01:13 segment ./build/verify-m1/data/recordings/5bbbe116-0b44-4769-abde-e72f89cf82a3/2462da4d-a096-4d8a-92f7-39121e4a7c03_00000.mkv probe: h264,250 10.000000 
+09:01:13 stopping source to test disconnect
+09:01:13 state after source stop: reconnecting (detected in 0 s), stale=True age_ms=-1
+09:01:16 gaps recorded: 1
+09:01:16 restarting source to test reconnect
+09:01:20 reconnected in 3 s, new session=0d0e48de-20d8-4a58-9ca9-ef702a5c8648 reconnects=3
+09:01:22 gaps: 1 total, 1 closed
+09:01:22 playback of segment e1785c88-89f4-4be7-9c22-01626e77dcd7
+09:01:27 playback state=playing position_ns=2040000000 ring: {"frames": 51, "fps": 25.5, "size": [640, 360], "latency_ms_p50": -1304452306.928125, "latency_ms_p95": -1304452305.569833, "writer_pid": 28610, "slots": 3}
+09:01:27 metrics: {"cameras":[{"bitrate_kbps":796.1581716097172,"bytes_received":765583,"camera_id":"5bbbe116-0b44-4769-abde-e72f89cf82a3","drops":0,"fps_new":25,"frames":181,"jitterbuffer":{"avg_jitter_ms":0.557103,"num_late":0,"num_lost":0,"num_pushed":1145},"latency_ms":{"p50":1.108167,"p95":1.546833,"p99":1.807792},"open_segments":1,"queue_depth":0,"reconnects":3,"recording":"recording","ring_bytes":11063512,"ring_write_errors":0,"session_id":"0d0e48de-20d8-4a58-9ca9-ef702a5c8648","stale":false,"state":"online"}],"playback_channels":0,"process":{"pipelines":1,"ring_bytes":11063512,"rss_bytes":96092160},"upt
+09:01:27 shutting down core via API
+09:01:27 restart core to check recovery and segment states
+09:01:29 after restart: finalized=4 damaged=0 stale-recording=0 open-in-new-session=1
+2026-09-13T09:01:27.590Z info recovery: sessions closed 0, segments finalized 0, damaged 0, missing 0

@@ -1,0 +1,31 @@
+cmake_minimum_required(VERSION 3.20)
+project(fovea-rtsp-testsrc LANGUAGES CXX)
+
+# Inside the Fovea tree the parent has already resolved GStreamer (PkgConfig::GST and
+# PkgConfig::GST_RTSP_SERVER); a standalone build does its own lookup under its own prefix.
+if(TARGET PkgConfig::GST AND TARGET PkgConfig::GST_RTSP_SERVER)
+  set(RTSP_TESTSRC_LIBS PkgConfig::GST PkgConfig::GST_RTSP_SERVER)
+else()
+  find_package(PkgConfig REQUIRED)
+  pkg_check_modules(GSTRTSP REQUIRED IMPORTED_TARGET gstreamer-1.0>=1.20 gstreamer-rtsp-server-1.0>=1.20)
+  # Homebrew's libffi .pc shim may reference an SDK that is not installed; ffi.h is not needed here.
+  get_target_property(_gst_includes PkgConfig::GSTRTSP INTERFACE_INCLUDE_DIRECTORIES)
+  set(_gst_existing_includes "")
+  foreach(_dir IN LISTS _gst_includes)
+    if(EXISTS "${_dir}")
+      list(APPEND _gst_existing_includes "${_dir}")
+    endif()
+  endforeach()
+  set_target_properties(PkgConfig::GSTRTSP PROPERTIES INTERFACE_INCLUDE_DIRECTORIES "${_gst_existing_includes}")
+  set(RTSP_TESTSRC_LIBS PkgConfig::GSTRTSP)
+endif()
+
+add_executable(fovea-rtsp-testsrc rtsp_testsrc.cpp)
+target_compile_features(fovea-rtsp-testsrc PRIVATE cxx_std_20)
+if(MSVC)
+  target_compile_options(fovea-rtsp-testsrc PRIVATE /W4 /permissive- /utf-8)
+else()
+  target_compile_options(fovea-rtsp-testsrc PRIVATE -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wno-sign-conversion)
+endif()
+target_link_libraries(fovea-rtsp-testsrc PRIVATE ${RTSP_TESTSRC_LIBS})
+set_target_properties(fovea-rtsp-testsrc PROPERTIES OUTPUT_NAME rtsp-testsrc AUTOMOC OFF AUTOUIC OFF)

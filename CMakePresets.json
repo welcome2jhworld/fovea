@@ -1,0 +1,53 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": { "major": 3, "minor": 25, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "CMAKE_CXX_STANDARD": "20"
+      }
+    },
+    {
+      "name": "macos-dev",
+      "inherits": "base",
+      "displayName": "macOS development (Homebrew Qt + GStreamer)",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Darwin" },
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "CMAKE_PREFIX_PATH": "/opt/homebrew/opt/qt;/opt/homebrew/opt/gstreamer",
+        "PKG_CONFIG_EXECUTABLE": "/opt/homebrew/bin/pkg-config"
+      },
+      "environment": {
+        "PKG_CONFIG_PATH": "/opt/homebrew/opt/gstreamer/lib/pkgconfig:/opt/homebrew/lib/pkgconfig"
+      }
+    },
+    {
+      "name": "windows-msvc",
+      "inherits": "base",
+      "displayName": "Windows x64 MSVC (Qt installer + GStreamer MSVC packages)",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" },
+      "architecture": { "value": "x64", "strategy": "external" },
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "CMAKE_PREFIX_PATH": "$env{QT_ROOT};$env{GSTREAMER_1_0_ROOT_MSVC_X86_64}",
+        "PKG_CONFIG_EXECUTABLE": "$env{GSTREAMER_1_0_ROOT_MSVC_X86_64}/bin/pkg-config.exe"
+      },
+      "environment": {
+        "PKG_CONFIG_PATH": "$env{GSTREAMER_1_0_ROOT_MSVC_X86_64}/lib/pkgconfig"
+      }
+    }
+  ],
+  "buildPresets": [
+    { "name": "macos-dev", "configurePreset": "macos-dev" },
+    { "name": "windows-msvc", "configurePreset": "windows-msvc" }
+  ],
+  "testPresets": [
+    { "name": "macos-dev", "configurePreset": "macos-dev", "output": { "outputOnFailure": true } },
+    { "name": "windows-msvc", "configurePreset": "windows-msvc", "output": { "outputOnFailure": true } }
+  ]
+}

@@ -1,0 +1,149 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  QT_VERSION: "6.9.0"
+  GST_VERSION: "1.26.11"
+
+jobs:
+  windows:
+    name: windows-x64
+    runs-on: windows-2022
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.QT_VERSION }}
+          host: windows
+          target: desktop
+          arch: win64_msvc2022_64
+          modules: qthttpserver qtwebsockets qtmultimedia
+          cache: true
+
+      - name: Cache GStreamer installers
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}\gst-cache
+          key: gst-msvc-${{ env.GST_VERSION }}
+
+      - name: Install GStreamer
+        shell: pwsh
+        run: |
+          $env:TEMP = "${{ runner.temp }}\gst-cache"
+          ./scripts/windows/install-gstreamer.ps1 -Version $env:GST_VERSION
+
+      - name: Configure
+        shell: pwsh
+        run: |
+          "QT_ROOT=$env:QT_ROOT_DIR" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          $env:QT_ROOT = $env:QT_ROOT_DIR
+          cmake --preset windows-msvc
+
+      - name: Build
+        shell: pwsh
+        run: cmake --build --preset windows-msvc
+
+      - name: Unit tests
+        shell: pwsh
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: ctest --preset windows-msvc --output-on-failure -E console_smoke
+
+      - name: Package
+        shell: pwsh
+        run: ./scripts/windows/package.ps1 -BuildDir build\windows-msvc -Out dist\fovea
+
+      - name: Verify packaged build (M1 flow, clean PATH)
+        shell: pwsh
+        run: |
+          $py = (Get-Command python).Source
+          $env:PATH = "C:\Windows\System32;C:\Windows"
+          $env:GSTREAMER_1_0_ROOT_MSVC_X86_64 = ""
+          & $py scripts/verify_m1.py --bin-dir dist\fovea --flat --source pattern --work-dir build\verify-m1 --report dist\verify-m1-windows.json
+
+      - name: Upload verification logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: verify-m1-windows
+          path: |
+            dist/verify-m1-windows.json
+            build/verify-m1/*.log
+          if-no-files-found: ignore
+
+      - name: Zip
+        shell: pwsh
+        run: Compress-Archive -Path dist\fovea\* -DestinationPath dist\fovea-windows-x64.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fovea-windows-x64
+          path: dist/fovea-windows-x64.zip
+
+      - name: Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/fovea-windows-x64.zip
+          prerelease: true
+
+  macos:
+    name: macos-arm64
+    runs-on: macos-15
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: brew install ninja pkgconf qt gstreamer ffmpeg
+      - name: Configure and build
+        run: |
+          cmake --preset macos-dev
+          cmake --build --preset macos-dev
+      - name: Unit tests
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: ctest --preset macos-dev --output-on-failure -E console_smoke
+      - name: Verify M1 flow
+        run: python3 scripts/verify_m1.py --bin-dir build/macos-dev --source pattern --report build/verify-m1-macos.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: verify-m1-macos
+          path: |
+            build/verify-m1-macos.json
+            build/verify-m1-py/*.log
+          if-no-files-found: ignore
+
+  worker:
+    name: worker-tests
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Protocol, parsing and tracking tests (no model weights)
+        working-directory: worker
+        run: |
+          python -m pip install numpy pillow
+          python -m unittest discover -s tests

@@ -1,0 +1,84 @@
+#pragma once
+#include "dialogs/DialogFrame.h"
+#include "fovea/Api.h"
+#include <QJsonDocument>
+#include <QTimer>
+#include <cstdint>
+
+class QLabel;
+
+namespace fovea::ui {
+
+class CoreClient;
+class FrameSurface;
+
+// 34 px scrim bar over the player: play/pause, 3 px track with accent fill, mono time.
+class PlaybackControls : public QWidget {
+  Q_OBJECT
+public:
+  static constexpr int kHeight = 34;
+  explicit PlaybackControls(QWidget* parent = nullptr);
+  void setState(bool playing, int64_t positionNs, int64_t durationNs, bool interactive);
+
+signals:
+  void toggleRequested();
+  void seekRequested(double fraction);
+
+protected:
+  void paintEvent(QPaintEvent* event) override;
+  void mousePressEvent(QMouseEvent* event) override;
+
+private:
+  QRect glyphRect() const;
+  QRect trackRect() const;
+  bool playing_ = false;
+  int64_t positionNs_ = 0;
+  int64_t durationNs_ = 0;
+  bool interactive_ = false;
+};
+
+class PlayerView : public QWidget {
+public:
+  explicit PlayerView(QWidget* parent = nullptr);
+  FrameSurface* surface() const { return surface_; }
+  PlaybackControls* controls() const { return controls_; }
+
+protected:
+  void resizeEvent(QResizeEvent* event) override;
+
+private:
+  FrameSurface* surface_ = nullptr;
+  PlaybackControls* controls_ = nullptr;
+};
+
+class PlaybackDialog : public DialogFrame {
+  Q_OBJECT
+public:
+  static constexpr int kPollIntervalMs = 250;
+  PlaybackDialog(CoreClient& client, const fovea::RecordingSegment& segment, const QString& cameraLabel,
+                 QWidget* parent = nullptr);
+  ~PlaybackDialog() override;
+
+  void start();
+
+private:
+  void onOpened(bool ok, const QJsonDocument& doc, const QString& error);
+  void poll();
+  void applyState(const fovea::PlaybackState& state);
+  void toggle();
+  void seek(double fraction);
+  void showError(const QString& message);
+  void closeChannel();
+
+  CoreClient& client_;
+  fovea::RecordingSegment segment_;
+  PlayerView* player_ = nullptr;
+  QLabel* status_ = nullptr;
+  QLabel* error_ = nullptr;
+  QTimer poll_;
+  fovea::PlaybackState state_;
+  bool pollInFlight_ = false;
+  bool channelOpen_ = false;
+};
+
+}

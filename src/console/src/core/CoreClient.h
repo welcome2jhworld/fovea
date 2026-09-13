@@ -1,0 +1,82 @@
+#pragma once
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QNetworkAccessManager>
+#include <QNetworkReply>
+#include <QObject>
+#include <QString>
+#include <cstdint>
+#include <functional>
+
+namespace fovea::ui {
+
+class CoreClient : public QObject {
+  Q_OBJECT
+public:
+  using Callback = std::function<void(bool ok, const QJsonDocument& doc, const QString& error)>;
+
+  // Why a request did not produce a 2xx answer; NoDiscovery and Refused mean nothing is serving.
+  enum class Failure { None, NoDiscovery, Refused, Timeout, Other };
+  struct ProbeResult {
+    bool ok = false;
+    Failure failure = Failure::None;
+    QString error;
+  };
+  using ProbeCallback = std::function<void(const ProbeResult& result)>;
+
+  static constexpr int kTimeoutMs = 5000;
+  // Headroom over the timeout_ms the core probes a camera for.
+  static constexpr int kTestTimeoutMarginMs = 5000;
+
+  explicit CoreClient(QObject* parent = nullptr);
+
+  // Forget the cached port and token so the next request re-reads core.json.
+  void resetEndpoint();
+  bool endpointKnown() const { return port_ != 0; }
+  QString baseUrl() const;
+  // Runs the event loop until no request is outstanding or timeoutMs elapses; used on exit so
+  // requests issued while closing (DELETE /v1/playback/{id}) reach the service.
+  void drain(int timeoutMs);
+
+  void probeHealth(ProbeCallback cb, QObject* context = nullptr);
+  void listCameras(Callback cb, QObject* context = nullptr);
+  void createCamera(const QJsonObject& camera, Callback cb, QObject* context = nullptr);
+  void updateCamera(const QString& id, const QJsonObject& camera, Callback cb, QObject* context = nullptr);
+  void deleteCamera(const QString& id, Callback cb, QObject* context = nullptr);
+  void enableCamera(const QString& id, bool enabled, Callback cb, QObject* context = nullptr);
+  void testConnection(const QJsonObject& camera, Callback cb, QObject* context = nullptr);
+  void listSegments(const QString& id, int64_t fromUtcMs, int64_t toUtcMs, Callback cb, QObject* context = nullptr);
+  void listGaps(const QString& id, int64_t fromUtcMs, int64_t toUtcMs, Callback cb, QObject* context = nullptr);
+  void listSessions(const QString& id, Callback cb, QObject* context = nullptr);
+  void openPlayback(const QJsonObject& request, Callback cb, QObject* context = nullptr);
+  void playbackState(const QString& id, Callback cb, QObject* context = nullptr);
+  void playbackControl(const QString& id, const QString& action, const QJsonObject& body, Callback cb,
+                       QObject* context = nullptr);
+  void closePlayback(const QString& id, Callback cb, QObject* context = nullptr);
+  void metrics(Callback cb, QObject* context = nullptr);
+  void shutdownService(Callback cb, QObject* context = nullptr);
+
+signals:
+  void drained();
+
+private:
+  struct Response {
+    Failure failure = Failure::None;
+    QJsonDocument doc;
+    QString error;
+  };
+  using ResponseCallback = std::function<void(const Response& response)>;
+
+  bool ensureEndpoint(QString& error);
+  void request(const QByteArray& verb, const QString& path, const QJsonDocument& body, int timeoutMs,
+               ResponseCallback cb, QObject* context);
+  void send(const QByteArray& verb, const QString& path, const QJsonDocument& body, Callback cb, QObject* context,
+            int timeoutMs = kTimeoutMs);
+
+  QNetworkAccessManager nam_;
+  quint16 port_ = 0;
+  QString token_;
+  int pending_ = 0;
+};
+
+}
