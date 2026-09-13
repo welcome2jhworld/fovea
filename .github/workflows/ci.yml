@@ -78,10 +78,18 @@ jobs:
         run: |
           $env:PATH = "$pwd\dist\fovea\bin;C:\Windows\System32;C:\Windows"
           $env:GSTREAMER_1_0_ROOT_MSVC_X86_64 = ""
-          foreach ($e in @("rtspsrc", "rtph264depay", "h264parse", "avdec_h264", "splitmuxsink", "matroskamux", "matroskademux", "appsink", "videoconvert", "videoscale", "jpegenc", "parsebin", "x264enc", "openh264enc", "mfvideosrc", "mfh264enc", "d3d11h264dec")) {
+          $required = @("rtspsrc", "rtph264depay", "rtph265depay", "h264parse", "h265parse", "avdec_h264", "avdec_h265", "splitmuxsink", "matroskamux", "matroskademux", "qtdemux", "appsink", "videoconvert", "videoscale", "jpegenc", "parsebin", "valve", "clocksync", "videotestsrc", "openh264enc")
+          # Hardware elements register only when the device exists (GitHub runners have no GPU).
+          $optional = @("x264enc", "mfvideosrc", "mfh264enc", "d3d11h264dec", "nvh264dec")
+          $failed = @()
+          foreach ($e in $required + $optional) {
             & dist\fovea\bin\gst-inspect-1.0.exe --exists $e
-            "{0,-16} {1}" -f $e, $(if ($LASTEXITCODE -eq 0) { "ok" } else { "MISSING" })
+            $ok = $LASTEXITCODE -eq 0
+            "{0,-16} {1}{2}" -f $e, $(if ($ok) { "ok" } else { "missing" }), $(if ($optional -contains $e) { " (optional)" } else { "" })
+            if (-not $ok -and $required -contains $e) { $failed += $e }
           }
+          if ($failed.Count) { throw "required GStreamer elements missing: $($failed -join ', ')" }
+          exit 0
 
       - name: Verify packaged build (M1 flow, clean PATH)
         shell: pwsh
