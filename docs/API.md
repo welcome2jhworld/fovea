@@ -35,5 +35,5 @@ CameraStatus:
   drops, queue_depth, reconnects, recording: recording|paused_disk|disabled|error,
   current_segment_id, frame_ring: { name, slots, slot_bytes, max_width, max_height, format } }
 ```
-`fps_new` counts distinct new frames only; repeated display of a held frame is
+`last_frame_age_ms` measures from the last frame received in any session of the camera during this core run, so it stays meaningful while reconnecting; -1 means no frame since the core started. `fps_new` counts distinct new frames only; repeated display of a held frame is
 never included.

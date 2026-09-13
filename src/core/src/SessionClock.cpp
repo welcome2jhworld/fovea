@@ -9,13 +9,6 @@ void SessionClock::start(int64_t firstPtsNs, int64_t startedUtcMs) {
   lastPtsNs_ = firstPtsNs;
 }
 
-void SessionClock::reset() {
-  started_ = false;
-  firstPtsNs_ = 0;
-  startedUtcMs_ = 0;
-  lastPtsNs_ = 0;
-}
-
 int64_t SessionClock::utcForPts(int64_t ptsNs) const {
   if (!started_) return 0;
   const int64_t delta = ptsNs - firstPtsNs_;

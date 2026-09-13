@@ -5,8 +5,8 @@
 
 namespace fovea::core {
 
-// Probes a recorded file with GStreamer discoverer. readable=false when the
-// container cannot be parsed; bytes=0 when the file does not exist.
+// Probes a recorded file by parsing its container. readable=false when it
+// cannot be parsed within the time limit; bytes=0 when the file does not exist.
 SegmentProbe probeSegmentFile(const QString& path);
 
 // Maps GStreamer caps names to display codec names: video/x-h264 -> H.264.

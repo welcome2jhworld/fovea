@@ -1,0 +1,33 @@
+10:15:50 generating clip
+10:15:50 starting rtsp test source (file)
+10:15:52 starting core
+10:15:52 core on port 57678
+10:15:52 camera ea1a41d0-656a-49ee-bb06-df3d48205230
+10:15:53 waiting for frames
+10:15:53 online session=076468d8-7882-4a50-b47d-2dc44e3e97bf fps=11 latency={'p50': 1.046584, 'p95': 9.889583, 'p99': 9.889583} ring=fv-8112514f8f7e27de
+10:15:53 sampling shared-memory ring for 3 s
+10:15:56 ring: {"frames": 76, "fps": 25.3, "size": [640, 360], "latency_ms_p50": 4.634, "latency_ms_p95": 6.494167, "writer_pid": 65162, "slots": 3}
+10:15:56 waiting for 2 finalized segments (segment_seconds=10)
+10:16:14 segment ./build/lane-core-verify/data/recordings/ea1a41d0-656a-49ee-bb06-df3d48205230/076468d8-7882-4a50-b47d-2dc44e3e97bf_00000.mkv probe: h264,250 10.000000 
+10:16:14 stopping source to test disconnect
+10:16:14 state after source stop: reconnecting (detected in 0 s), stale=False age_ms=42
+10:16:17 gaps recorded: 1
+10:16:17 restarting source to test reconnect
+10:16:22 reconnected in 3 s, new session=8def66b8-d4f1-40d5-9ef0-5bb7150acb6b reconnects=3
+10:16:24 gaps: 1 total, 1 closed
+10:16:24 segment start times match their session mapping (3 finalized)
+10:16:24 restarting the pipeline via PUT: the frame ring must be renamed for the new session
+10:16:27 ring renamed fv-434c2f7e908c83f8 -> fv-6c7d131feb8c4bbe, old ring gone, new ring: {"frames": 51, "fps": 25.5, "size": [640, 360], "latency_ms_p50": 4.332583, "latency_ms_p95": 6.184292, "writer_pid": 65162, "slots": 3}
+10:16:27 playback of segment 3ea4d7df-6ca1-4fab-a813-baf9c1fbd475
+10:16:31 playback state=playing position_ns=2000000000 ring: {"frames": 51, "fps": 25.5, "size": [640, 360], "latency_ms_p50": 3.353666, "latency_ms_p95": 6.026167, "writer_pid": 65162, "slots": 3}
+10:16:31 metrics: {"cameras":[{"bitrate_kbps":813.6946810308544,"bytes_received":769167,"camera_id":"ea1a41d0-656a-49ee-bb06-df3d48205230","drops":0,"fps_new":26,"frames":182,"jitterbuffer":{"avg_jitter_ms":0.634753,"num_late":0,"num_lost":0,"num_pushed":1151},"latency_ms":{"p50":0.954333,"p95":1.561583,"p99":1.931083},"open_segments":1,"queue_depth":0,"reconnects":3,"recording":"recording","ring_bytes":11063512,"ring_write_errors":0,"session_id":"c6713b93-012d-41ca-b206-18d180d8f74f","stale":false,"state":"online"}],"playback_channels":0,"process":{"pipelines":1,"ring_bytes":11063512,"rss_bytes":96665600},"upt
+10:16:31 shutting down core via API
+10:16:31 restart core to check recovery and segment states
+10:16:33 after restart: finalized=5 damaged=0 stale-recording=0 open-in-new-session=1
+2026-09-13T10:16:31.973Z info recovery: sessions closed 0, gaps closed 0, segments finalized 0, damaged 0, missing 0, files adopted 0, quarantined 0
+10:16:33 segment start times match their session mapping (5 finalized)
+10:16:33 waiting for a segment that has been recording for 4 s, then killing the core with SIGKILL
+10:16:37 after SIGKILL: 2026-09-13T10:16:36.195Z info recovery: sessions closed 1, gaps closed 0, segments finalized 1, damaged 0, missing 0, files adopted 0, quarantined 0
+10:16:37 recovered segment 749d0bc4-e7c5-4502-a25d-c5af35c4d06b: 4.0 s, 429586 bytes
+10:16:38 segment start times match their session mapping (6 finalized)
+10:16:39 PASS

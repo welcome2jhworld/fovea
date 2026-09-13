@@ -94,9 +94,11 @@ int main(int argc, char** argv) {
     qCritical("cannot open database: %s", qPrintable(store.lastError()));
     return 4;
   }
-  const auto recovery = store.recoverOnStartup(fovea::core::probeSegmentFile, fovea::utcNowMs());
-  qInfo("recovery: sessions closed %d, segments finalized %d, damaged %d, missing %d", recovery.sessionsClosed,
-        recovery.segmentsFinalized, recovery.segmentsDamaged, recovery.segmentsMissing);
+  const auto recovery = store.recoverOnStartup(fovea::core::probeSegmentFile, fovea::utcNowMs(), config.recordingsDir);
+  qInfo("recovery: sessions closed %d, gaps closed %d, segments finalized %d, damaged %d, missing %d, files adopted %d,"
+        " quarantined %d",
+        recovery.sessionsClosed, recovery.gapsClosed, recovery.segmentsFinalized, recovery.segmentsDamaged,
+        recovery.segmentsMissing, recovery.filesAdopted, recovery.filesQuarantined);
 
   fovea::core::FileSecretStore secrets(fovea::secretsPath());
   const QString token = fovea::loadOrCreateToken(fovea::tokenPath());
@@ -118,9 +120,10 @@ int main(int argc, char** argv) {
   auto shutdown = [&] {
     qInfo("shutting down");
     playback.closeAll();
-    cameras.stopAll();
-    QFile::remove(fovea::coreInfoPath());
-    QCoreApplication::quit();
+    cameras.stopAll([] {
+      QFile::remove(fovea::coreInfoPath());
+      QCoreApplication::quit();
+    });
   };
   api.setShutdownHandler(shutdown);
 

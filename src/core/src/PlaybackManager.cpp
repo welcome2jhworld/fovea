@@ -80,16 +80,14 @@ struct PlaybackManager::Impl {
     std::mutex messageMutex;
     std::deque<GstMessage*> messages;
 
+    // The appsink thread swaps sinkCaps, so it is released only once the
+    // pipeline is NULL and that thread has stopped.
     ~Channel() {
+      if (bus) gst_bus_set_sync_handler(bus, nullptr, nullptr, nullptr);
+      if (pipeline) gst_element_set_state(pipeline, GST_STATE_NULL);
       if (sinkCaps) gst_caps_unref(sinkCaps);
-      if (bus) {
-        gst_bus_set_sync_handler(bus, nullptr, nullptr, nullptr);
-        gst_object_unref(bus);
-      }
-      if (pipeline) {
-        gst_element_set_state(pipeline, GST_STATE_NULL);
-        gst_object_unref(pipeline);
-      }
+      if (bus) gst_object_unref(bus);
+      if (pipeline) gst_object_unref(pipeline);
       for (GstMessage* m : messages) gst_message_unref(m);
     }
 
@@ -308,8 +306,14 @@ struct PlaybackManager::Impl {
       if (error) *error = QStringLiteral("segment is still being recorded");
       return std::nullopt;
     }
-    if (!QFileInfo::exists(seg.path)) {
+    const QString path = QFileInfo(seg.path).canonicalFilePath();
+    if (path.isEmpty()) {
       if (error) *error = QStringLiteral("recording file is missing");
+      return std::nullopt;
+    }
+    const QString recordings = QFileInfo(config.recordingsDir).canonicalFilePath();
+    if (recordings.isEmpty() || !path.startsWith(recordings + QLatin1Char('/'))) {
+      if (error) *error = QStringLiteral("recording path outside recordings directory");
       return std::nullopt;
     }
     auto ch = std::make_unique<Channel>();
@@ -332,7 +336,7 @@ struct PlaybackManager::Impl {
 
     ch->pipeline = gst_pipeline_new(nullptr);
     GstElement* source = gst_element_factory_make("filesrc", nullptr);
-    ch->demux = gst_element_factory_make(demuxerForPath(seg.path).toUtf8().constData(), "demux");
+    ch->demux = gst_element_factory_make(demuxerForPath(path).toUtf8().constData(), "demux");
     if (!source || !ch->demux) {
       if (source) gst_object_unref(source);
       if (ch->demux) gst_object_unref(ch->demux);
@@ -340,10 +344,10 @@ struct PlaybackManager::Impl {
       if (error) *error = QStringLiteral("missing GStreamer demuxer");
       return std::nullopt;
     }
-    g_object_set(source, "location", seg.path.toUtf8().constData(), nullptr);
+    g_object_set(source, "location", path.toUtf8().constData(), nullptr);
     gst_bin_add_many(GST_BIN(ch->pipeline), source, ch->demux, nullptr);
     gst_element_link(source, ch->demux);
-    const QString codec = probeVideoCodec(seg.path);
+    const QString codec = probeVideoCodec(path);
     if (codec != QLatin1String("h264") && codec != QLatin1String("h265")) {
       if (error) *error = codec.isEmpty() ? QStringLiteral("recording is not readable")
                                           : QStringLiteral("unsupported codec %1").arg(codec.mid(codec.indexOf(':') + 1));
@@ -372,7 +376,7 @@ struct PlaybackManager::Impl {
     ch->st.frameRing = RingRef{info.name, info.slotCount, info.slotBytes, info.maxWidth, info.maxHeight, QStringLiteral("BGRA")};
     if (offsetNs > 0) ch->seekTo(offsetNs, 1.0);
     refreshPosition(*ch);
-    qInfo("playback %s: opened %s (%.1f s)", qPrintable(ch->st.id), qPrintable(QFileInfo(seg.path).fileName()),
+    qInfo("playback %s: opened %s (%.1f s)", qPrintable(ch->st.id), qPrintable(QFileInfo(path).fileName()),
           static_cast<double>(ch->st.durationNs) / 1e9);
     const PlaybackState state = ch->st;
     channels.emplace(state.id, std::move(ch));

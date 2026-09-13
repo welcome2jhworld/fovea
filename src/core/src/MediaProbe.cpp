@@ -3,12 +3,13 @@
 #include <QUrl>
 #include <gst/gst.h>
 #include <gst/pbutils/pbutils.h>
+#include <optional>
 
 namespace fovea::core {
 namespace {
 
 constexpr GstClockTime kDiscoverTimeout = 5 * GST_SECOND;
-constexpr gint64 kParseWallLimitUs = 6 * G_USEC_PER_SEC;
+constexpr GstClockTime kParseWallLimit = 6 * GST_SECOND;
 
 struct ParseCount {
   guint64 buffers = 0;
@@ -41,8 +42,10 @@ QString demuxerFor(const QString& path) {
 
 // Parses the container without decoding and takes the last timestamp as the
 // duration; used when the file lacks a duration header (a recording that was
-// cut short by a crash). Bounded in wall time so recovery cannot hang.
-int64_t durationByParsing(const QString& path) {
+// cut short by a crash). Bounded in wall time so recovery cannot hang. A parse
+// that neither ends nor fails within the limit has no known duration (nullopt):
+// the timestamps seen so far would cut the segment short.
+std::optional<int64_t> durationByParsing(const QString& path) {
   const QString launch = QStringLiteral("filesrc location=\"%1\" ! %2 name=demux ! parsebin ! fakesink name=sink sync=false")
                              .arg(QString(path).replace('"', QStringLiteral("\\\"")), demuxerFor(path));
   GError* err = nullptr;
@@ -58,22 +61,16 @@ int64_t durationByParsing(const QString& path) {
   gst_pad_add_probe(pad, GST_PAD_PROBE_TYPE_BUFFER, countBuffers, &count, nullptr);
   GstBus* bus = gst_element_get_bus(pipeline);
   gst_element_set_state(pipeline, GST_STATE_PLAYING);
-  const gint64 deadline = g_get_monotonic_time() + kParseWallLimitUs;
-  for (;;) {
-    const gint64 left = deadline - g_get_monotonic_time();
-    if (left <= 0) break;
-    GstMessage* msg = gst_bus_timed_pop_filtered(bus, static_cast<GstClockTime>(left) * GST_USECOND,
-                                                 static_cast<GstMessageType>(GST_MESSAGE_EOS | GST_MESSAGE_ERROR));
-    if (!msg) break;
-    const bool done = GST_MESSAGE_TYPE(msg) == GST_MESSAGE_EOS || GST_MESSAGE_TYPE(msg) == GST_MESSAGE_ERROR;
-    gst_message_unref(msg);
-    if (done) break;
-  }
+  GstMessage* msg =
+      gst_bus_timed_pop_filtered(bus, kParseWallLimit, static_cast<GstMessageType>(GST_MESSAGE_EOS | GST_MESSAGE_ERROR));
+  const bool settled = msg != nullptr;
+  if (msg) gst_message_unref(msg);
   gst_element_set_state(pipeline, GST_STATE_NULL);
   gst_object_unref(bus);
   gst_object_unref(pad);
   gst_object_unref(sink);
   gst_object_unref(pipeline);
+  if (!settled) return std::nullopt;
   if (count.buffers == 0 || !GST_CLOCK_TIME_IS_VALID(count.lastPts)) return 0;
   const GstClockTime first = GST_CLOCK_TIME_IS_VALID(count.firstPts) ? count.firstPts : 0;
   GstClockTime end = count.lastPts;
@@ -93,7 +90,7 @@ SegmentProbe probeSegmentFile(const QString& path) {
   if (!fi.exists() || !fi.isFile()) return probe;
   probe.bytes = fi.size();
   if (probe.bytes == 0) return probe;
-  probe.durationNs = durationByParsing(path);
+  probe.durationNs = durationByParsing(path).value_or(0);
   probe.readable = probe.durationNs > 0;
   return probe;
 }

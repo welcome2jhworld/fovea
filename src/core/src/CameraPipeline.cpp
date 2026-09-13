@@ -7,6 +7,7 @@
 #include "fovea/core/SessionClock.h"
 #include "fovea/core/Store.h"
 #include <QDir>
+#include <QFile>
 #include <QFileInfo>
 #include <QHash>
 #include <QStorageInfo>
@@ -19,8 +20,8 @@
 #include <array>
 #include <atomic>
 #include <chrono>
-#include <condition_variable>
 #include <deque>
+#include <limits>
 #include <mutex>
 #include <utility>
 #include <vector>
@@ -29,16 +30,19 @@ namespace fovea::core {
 namespace {
 
 constexpr int kTickMs = 250;
-constexpr int64_t kStopWaitMs = 3000;
+constexpr std::chrono::milliseconds kStopWait{3000};
 constexpr int64_t kHealthyResetNs = 30LL * 1000 * 1000 * 1000;
+constexpr int64_t kBackwardsRestartAfterNs = 5LL * 1000 * 1000 * 1000;
 constexpr int64_t kFpsWindowNs = 1'000'000'000;
 constexpr int64_t kLatencyWindowNs = 2'000'000'000;
 constexpr int64_t kBitrateWindowNs = 2'000'000'000;
+constexpr int64_t kDiskCheckIntervalNs = 1'000'000'000;
+constexpr int64_t kDiskResumeHeadroomBytes = 16LL * 1024 * 1024;
 constexpr size_t kPtsMapSize = 64;
 constexpr int64_t kConnectGraceMs = 2000;
 
-struct PtsMono {
-  GstClockTime pts = GST_CLOCK_TIME_NONE;
+struct RtMono {
+  int64_t rt = -1;
   int64_t mono = 0;
 };
 
@@ -46,18 +50,14 @@ struct PtsMono {
 // drained on the owner's thread, so no message is lost while stopping.
 struct MessageQueue {
   std::mutex mutex;
-  std::condition_variable cv;
   std::deque<GstMessage*> queue;
 
   ~MessageQueue() {
     for (GstMessage* m : queue) gst_message_unref(m);
   }
   void push(GstMessage* msg) {
-    {
-      std::lock_guard<std::mutex> lock(mutex);
-      queue.push_back(gst_message_ref(msg));
-    }
-    cv.notify_all();
+    std::lock_guard<std::mutex> lock(mutex);
+    queue.push_back(gst_message_ref(msg));
   }
   std::deque<GstMessage*> take() {
     std::lock_guard<std::mutex> lock(mutex);
@@ -65,23 +65,17 @@ struct MessageQueue {
     out.swap(queue);
     return out;
   }
-  void waitFor(int64_t ms) {
-    std::unique_lock<std::mutex> lock(mutex);
-    if (queue.empty()) cv.wait_for(lock, std::chrono::milliseconds(ms));
-  }
 };
 
 struct RunStats {
   SessionClock clock;
   uint64_t packets = 0;
   uint64_t bytes = 0;
-  int64_t firstPacketMono = 0;
   int64_t lastPacketMono = 0;
-  int64_t lastPacketUtc = 0;
-  int64_t lastPacketRt = 0;
+  int64_t lastPacketEndUtc = 0;
   uint64_t resumeCount = 0;
-  int64_t resumeGapStartUtc = 0;
-  int64_t resumeUtc = 0;
+  int64_t resumeFromUtc = 0;
+  int64_t resumeToUtc = 0;
   bool ptsBackwards = false;
   QString codec;
   int width = 0;
@@ -96,7 +90,7 @@ struct RunStats {
   int64_t drops = 0;
   std::deque<int64_t> frameTimes;
   std::deque<std::pair<int64_t, int64_t>> latencies;
-  std::array<PtsMono, kPtsMapSize> ptsMap{};
+  std::array<RtMono, kPtsMapSize> ptsMap{};
   size_t ptsMapNext = 0;
   GstElement* jitterbuffer = nullptr;
 };
@@ -230,13 +224,41 @@ GstClockTime runningTimeFor(const GstSegment* segment, bool valid, GstClockTime 
   return gst_segment_to_running_time(segment, GST_FORMAT_TIME, pts);
 }
 
+// splitmuxsink reports a missing running time as GST_CLOCK_STIME_NONE, which
+// reads as 2^63 through the unsigned field.
+bool readTime(const GstStructure* s, const char* field, int64_t& out) {
+  guint64 value = 0;
+  if (!gst_structure_get_uint64(s, field, &value) || value > static_cast<guint64>(std::numeric_limits<int64_t>::max()))
+    return false;
+  out = static_cast<int64_t>(value);
+  return true;
 }
+
+}
+
+// Streaming and worker threads post to the pipeline through this, so a post
+// can never race the pipeline's destruction.
+struct CameraPipeline::Mailbox {
+  std::mutex mutex;
+  CameraPipeline* target = nullptr;
+
+  void post(std::function<void()> fn) {
+    std::lock_guard<std::mutex> lock(mutex);
+    if (target) QMetaObject::invokeMethod(target, std::move(fn), Qt::QueuedConnection);
+  }
+  void detach() {
+    std::lock_guard<std::mutex> lock(mutex);
+    target = nullptr;
+  }
+};
 
 struct CameraPipeline::Run {
   uint64_t id = 0;
   CameraPipeline* owner = nullptr;
+  std::shared_ptr<Mailbox> mailbox;
   Camera cam;
   bool isFile = false;
+  bool diskPaused = false;
   int64_t gapAfterNs = 0;
   uint32_t ringMaxWidth = 0;
   uint32_t ringMaxHeight = 0;
@@ -265,7 +287,6 @@ struct CameraPipeline::Run {
   std::atomic<bool> chainSynced{false};
   std::atomic<bool> stopping{false};
   std::atomic<bool> eosSeen{false};
-  std::atomic<bool> diskPaused{false};
   std::atomic<bool> codecErrorPosted{false};
 
   MessageQueue messages;
@@ -276,6 +297,7 @@ struct CameraPipeline::Run {
   std::array<uint8_t, 16> sessionBytes{};
   int64_t startedUtcMs = 0;
   int64_t startedMonoNs = 0;
+  std::mutex ringMutex;
   std::unique_ptr<FrameRingWriter> ring;
 
   QString recordDir;
@@ -287,6 +309,18 @@ struct CameraPipeline::Run {
   int64_t onlineSinceMono = 0;
   uint64_t seenResume = 0;
   std::deque<std::pair<int64_t, uint64_t>> bitrateSamples;
+
+  struct EosJob {
+    GstPad* pad = nullptr;
+    std::shared_ptr<Mailbox> mailbox;
+    CameraPipeline* owner = nullptr;
+    uint64_t runId = 0;
+  };
+
+  struct Teardown {
+    std::unique_ptr<Run> run;
+    std::vector<std::pair<QString, QString>> leftovers;
+  };
 
   ~Run() {
     if (sinkCaps) gst_caps_unref(sinkCaps);
@@ -302,7 +336,30 @@ struct CameraPipeline::Run {
   void invoke(void (CameraPipeline::*method)(uint64_t)) {
     CameraPipeline* target = owner;
     const uint64_t runId = id;
-    QMetaObject::invokeMethod(target, [target, method, runId] { (target->*method)(runId); }, Qt::QueuedConnection);
+    mailbox->post([target, method, runId] { (target->*method)(runId); });
+  }
+
+  static void sendEos(GstElement*, gpointer user) {
+    std::unique_ptr<EosJob> job(static_cast<EosJob*>(user));
+    const bool sent = gst_pad_send_event(job->pad, gst_event_new_eos()) != FALSE;
+    gst_object_unref(job->pad);
+    // A refused EOS (the pads are already flushing) never reaches the bus.
+    if (!sent) job->mailbox->post([owner = job->owner, runId = job->runId] { owner->finishRetire(runId); });
+  }
+
+  // Pool thread: the state change can wait on a sink stuck in write(), and a
+  // segment probe parses the whole file once the sink has closed it.
+  static void teardown(GstElement*, gpointer user) {
+    std::unique_ptr<Teardown> job(static_cast<Teardown*>(user));
+    const std::shared_ptr<Mailbox> mailbox = job->run->mailbox;
+    CameraPipeline* owner = job->run->owner;
+    gst_element_set_state(job->run->pipeline, GST_STATE_NULL);
+    job->run.reset();
+    mailbox->post([owner] { owner->onTornDown(); });
+    for (const auto& [segmentId, path] : job->leftovers) {
+      const SegmentProbe probe = probeSegmentFile(path);
+      mailbox->post([owner, id = segmentId, probe] { owner->onLeftoverProbed(id, probe); });
+    }
   }
 
   static GstBusSyncReply onBusSync(GstBus*, GstMessage* msg, gpointer user) {
@@ -384,15 +441,21 @@ struct CameraPipeline::Run {
     capsFilter = makeElement("capsfilter");
     appsink = makeElement("appsink", "ringsink");
     GstElement* recQueue = nullptr;
+    GstElement* muxer = nullptr;
+    GstElement* filesink = nullptr;
     if (cam.recordEnabled) {
       recQueue = makeElement("queue", "recq");
       valve = makeElement("valve", "recvalve");
       splitmux = makeElement("splitmuxsink", "splitmux");
+      muxer = makeElement("matroskamux");
+      filesink = makeElement("filesink");
     }
     const bool ok = (rtp ? depay != nullptr : true) && parse && (isFile ? pacer != nullptr : true) && tee && viewQueue &&
-                    dec && conv && scale && capsFilter && appsink && (!cam.recordEnabled || (recQueue && valve && splitmux));
+                    dec && conv && scale && capsFilter && appsink &&
+                    (!cam.recordEnabled || (recQueue && valve && splitmux && muxer && filesink));
     if (!ok) {
-      for (GstElement* e : {depay, parse, pacer, tee, viewQueue, dec, conv, scale, capsFilter, appsink, recQueue, valve, splitmux})
+      for (GstElement* e :
+           {depay, parse, pacer, tee, viewQueue, dec, conv, scale, capsFilter, appsink, recQueue, valve, splitmux, muxer, filesink})
         if (e) gst_object_unref(e);
       tee = viewQueue = capsFilter = appsink = valve = splitmux = nullptr;
       postError(pipeline, QStringLiteral("missing GStreamer elements for %1").arg(codec));
@@ -414,15 +477,14 @@ struct CameraPipeline::Run {
     if (pacer) gst_bin_add(GST_BIN(pipeline), pacer);
 
     if (cam.recordEnabled) {
-      GstElement* muxer = makeElement("matroskamux");
-      GstElement* filesink = makeElement("filesink");
-      if (muxer && filesink) {
-        gst_util_set_object_arg(G_OBJECT(filesink), "buffer-mode", "unbuffered");
-        g_object_set(splitmux, "max-size-time", static_cast<guint64>(cam.segmentSeconds) * GST_SECOND, "muxer", muxer,
-                     "sink", filesink, nullptr);
-      }
+      gst_util_set_object_arg(G_OBJECT(filesink), "buffer-mode", "unbuffered");
+      g_object_set(splitmux, "max-size-time", static_cast<guint64>(cam.segmentSeconds) * GST_SECOND, "muxer", muxer, "sink",
+                   filesink, nullptr);
       g_signal_connect(splitmux, "format-location", G_CALLBACK(onFormatLocation), this);
-      g_object_set(valve, "drop", diskPaused.load() ? TRUE : FALSE, nullptr);
+      // The default drop-all mode also swallows the EOS that finalizes the
+      // open file.
+      gst_util_set_object_arg(G_OBJECT(valve), "drop-mode", "forward-sticky-events");
+      g_object_set(valve, "drop", diskPaused ? TRUE : FALSE, nullptr);
       gst_bin_add_many(GST_BIN(pipeline), recQueue, valve, splitmux, nullptr);
       gst_element_link_many(tee, recQueue, valve, nullptr);
       gst_element_link_pads(valve, "src", splitmux, "video");
@@ -506,39 +568,49 @@ struct CameraPipeline::Run {
     GstClockTime pts = GST_BUFFER_PTS(buf);
     if (!GST_CLOCK_TIME_IS_VALID(pts)) pts = GST_BUFFER_DTS(buf);
     const GstClockTime rtRaw = runningTimeFor(&run->segment, run->segmentValid, pts);
-    const int64_t rt = GST_CLOCK_TIME_IS_VALID(rtRaw) ? static_cast<int64_t>(rtRaw) : 0;
+    const bool timed = GST_CLOCK_TIME_IS_VALID(rtRaw);
+    const int64_t rt = timed ? static_cast<int64_t>(rtRaw) : 0;
+    const int64_t endRt = rt + (GST_BUFFER_DURATION_IS_VALID(buf) ? static_cast<int64_t>(GST_BUFFER_DURATION(buf)) : 0);
     bool first = false;
     bool backwards = false;
+    bool drop = false;
     {
       std::lock_guard<std::mutex> lock(run->mutex);
       RunStats& st = run->stats;
+      const int64_t utc = utcNowMs();
+      if (st.packets > 0 && now - st.lastPacketMono > run->gapAfterNs) {
+        ++st.resumeCount;
+        st.resumeFromUtc = st.lastPacketEndUtc;
+        st.resumeToUtc = timed && st.clock.started() ? st.clock.utcForPts(rt) : utc;
+      }
       ++st.packets;
       st.bytes += gst_buffer_get_size(buf);
-      st.ptsMap[st.ptsMapNext] = {pts, now};
-      st.ptsMapNext = (st.ptsMapNext + 1) % kPtsMapSize;
-      const int64_t utc = utcNowMs();
-      if (st.packets == 1) {
-        first = true;
-        st.clock.start(rt, utc);
-        st.firstPacketMono = now;
-      } else {
-        if (!st.clock.observe(rt) && !st.ptsBackwards) {
+      st.lastPacketMono = now;
+      // A buffer without a usable timestamp is traffic, but it must neither
+      // anchor nor move the session clock.
+      if (timed) {
+        if (!st.clock.started()) {
+          st.clock.start(rt, utc);
+          first = true;
+        } else if (!st.clock.observe(rt) && !st.ptsBackwards) {
           st.ptsBackwards = true;
           backwards = true;
         }
-        if (now - st.lastPacketMono > run->gapAfterNs) {
-          ++st.resumeCount;
-          st.resumeGapStartUtc = st.lastPacketUtc;
-          st.resumeUtc = utc;
+        if (!st.ptsBackwards) {
+          st.ptsMap[st.ptsMapNext] = {rt, now};
+          st.ptsMapNext = (st.ptsMapNext + 1) % kPtsMapSize;
+          st.lastPacketEndUtc = std::max(st.lastPacketEndUtc, st.clock.utcForPts(endRt));
         }
+      } else if (!st.clock.started()) {
+        st.lastPacketEndUtc = utc;
       }
-      st.lastPacketMono = now;
-      st.lastPacketUtc = utc;
-      st.lastPacketRt = rt;
+      drop = st.ptsBackwards;
     }
     if (first) run->invoke(&CameraPipeline::onFirstPacket);
     if (backwards) run->invoke(&CameraPipeline::onPtsBackwards);
-    return GST_PAD_PROBE_OK;
+    // After a backwards jump nothing more reaches this session's recording or
+    // ring; the manager thread replaces the session.
+    return drop ? GST_PAD_PROBE_DROP : GST_PAD_PROBE_OK;
   }
 
   static GstFlowReturn onNewSample(GstAppSink* sink, gpointer user) {
@@ -567,14 +639,17 @@ struct CameraPipeline::Run {
     const GstClockTime pts = GST_BUFFER_PTS(buf);
     const GstSegment* seg = gst_sample_get_segment(sample);
     const GstClockTime rtRaw = runningTimeFor(seg, seg && seg->format == GST_FORMAT_TIME, pts);
-    const int64_t rt = GST_CLOCK_TIME_IS_VALID(rtRaw) ? static_cast<int64_t>(rtRaw) : 0;
+    const bool timed = GST_CLOCK_TIME_IS_VALID(rtRaw);
+    const int64_t rt = timed ? static_cast<int64_t>(rtRaw) : 0;
     const int64_t now = monoNowNs();
 
+    // Keyed by running time: unlike the raw PTS, which a looping file repeats
+    // on every pass, it never repeats within a session.
     int64_t recvMono = now;
-    {
+    if (timed) {
       std::lock_guard<std::mutex> lock(run->mutex);
-      for (const PtsMono& e : run->stats.ptsMap) {
-        if (e.pts == pts && GST_CLOCK_TIME_IS_VALID(pts)) {
+      for (const RtMono& e : run->stats.ptsMap) {
+        if (e.rt == rt) {
           recvMono = e.mono;
           break;
         }
@@ -590,7 +665,11 @@ struct CameraPipeline::Run {
     header.sessionId = run->sessionBytes;
     const auto* pixels = static_cast<const uint8_t*>(GST_VIDEO_FRAME_PLANE_DATA(&frame, 0));
     const size_t stride = static_cast<size_t>(GST_VIDEO_FRAME_PLANE_STRIDE(&frame, 0));
-    const bool written = run->ring && run->ring->write(header, pixels, stride);
+    bool written = false;
+    {
+      std::lock_guard<std::mutex> lock(run->ringMutex);
+      written = run->ring && run->ring->write(header, pixels, stride);
+    }
     gst_video_frame_unmap(&frame);
     const int64_t writeMono = monoNowNs();
 
@@ -598,18 +677,23 @@ struct CameraPipeline::Run {
       std::lock_guard<std::mutex> lock(run->mutex);
       RunStats& st = run->stats;
       ++st.frames;
-      if (!written) ++st.ringWriteErrors;
-      st.lastFrameRecvMono = recvMono;
-      st.frameTimes.push_back(writeMono);
-      st.latencies.emplace_back(writeMono, writeMono - recvMono);
-      if (st.lastFrameRt >= 0 && rt > st.lastFrameRt) {
-        const int64_t delta = rt - st.lastFrameRt;
-        if (st.framePeriodNs == 0)
-          st.estimatedPeriodNs = st.estimatedPeriodNs == 0 ? delta : (st.estimatedPeriodNs * 7 + delta) / 8;
-        const int64_t period = st.framePeriodNs > 0 ? st.framePeriodNs : st.estimatedPeriodNs;
-        if (period > 0 && delta > period * 3 / 2) st.drops += delta / period - 1;
+      if (written) {
+        st.lastFrameRecvMono = recvMono;
+        st.frameTimes.push_back(writeMono);
+        st.latencies.emplace_back(writeMono, writeMono - recvMono);
+      } else {
+        ++st.ringWriteErrors;
       }
-      st.lastFrameRt = rt;
+      if (timed) {
+        if (st.lastFrameRt >= 0 && rt > st.lastFrameRt) {
+          const int64_t delta = rt - st.lastFrameRt;
+          if (st.framePeriodNs == 0)
+            st.estimatedPeriodNs = st.estimatedPeriodNs == 0 ? delta : (st.estimatedPeriodNs * 7 + delta) / 8;
+          const int64_t period = st.framePeriodNs > 0 ? st.framePeriodNs : st.estimatedPeriodNs;
+          if (period > 0 && delta > period * 3 / 2) st.drops += delta / period - 1;
+        }
+        st.lastFrameRt = rt;
+      }
       pruneFrameStats(st, writeMono);
     }
     gst_sample_unref(sample);
@@ -627,19 +711,31 @@ struct CameraPipeline::Run {
 CameraPipeline::CameraPipeline(Camera camera, std::optional<Credentials> credentials, Store& store, const CoreConfig& config,
                                QObject* parent)
     : QObject(parent), camera_(std::move(camera)), credentials_(std::move(credentials)), store_(store), config_(config),
-      backoff_(1000, 30000, 2.0) {
+      mailbox_(std::make_shared<Mailbox>()), backoff_(1000, 30000, 2.0) {
+  mailbox_->target = this;
   tickTimer_.setInterval(kTickMs);
   connect(&tickTimer_, &QTimer::timeout, this, &CameraPipeline::tick);
   reconnectTimer_.setSingleShot(true);
   connect(&reconnectTimer_, &QTimer::timeout, this, [this] {
     if (!wantRunning_ || run_) return;
     ++reconnects_;
-    startRun();
+    requestStart();
   });
 }
 
 CameraPipeline::~CameraPipeline() {
-  if (run_) endRun(QStringLiteral("stopped"));
+  mailbox_->detach();
+  if (run_) {
+    run_->stopping = true;
+    drain(*run_);
+    closeSession(*run_, QStringLiteral("shutdown"));
+    retiring_.push_back(std::move(run_));
+  }
+  for (std::unique_ptr<Run>& run : retiring_) {
+    run->openSegmentPaths.clear();
+    disposeRun(std::move(run));
+  }
+  closeOpenGap(utcNowMs());
 }
 
 void CameraPipeline::start() {
@@ -647,14 +743,16 @@ void CameraPipeline::start() {
   backoff_.reset();
   state_ = QStringLiteral("connecting");
   sinceUtcMs_ = utcNowMs();
-  if (!run_) startRun();
+  if (!run_) requestStart();
   emit statusChanged(camera_.id);
 }
 
 void CameraPipeline::stop(const QString& reason) {
   wantRunning_ = false;
+  startPending_ = false;
   reconnectTimer_.stop();
-  if (run_) endRun(reason);
+  if (run_) retireRun(reason);
+  else closeOpenGap(utcNowMs());
   state_ = QStringLiteral("offline");
   sinceUtcMs_ = utcNowMs();
   emit statusChanged(camera_.id);
@@ -665,20 +763,38 @@ void CameraPipeline::reconfigure(Camera camera, std::optional<Credentials> crede
   credentials_ = std::move(credentials);
   if (!wantRunning_) return;
   reconnectTimer_.stop();
-  if (run_) endRun(QStringLiteral("stopped"));
   backoff_.reset();
-  state_ = QStringLiteral("connecting");
-  sinceUtcMs_ = utcNowMs();
-  startRun();
-  emit statusChanged(camera_.id);
+  restartRun(QStringLiteral("stopped"));
 }
 
 void CameraPipeline::setCamera(const Camera& camera) { camera_ = camera; }
+
+bool CameraPipeline::idle() const { return !run_ && retiring_.empty() && pendingTeardowns_ == 0 && pendingProbes_ == 0; }
+
+void CameraPipeline::restartRun(const QString& reason) {
+  if (run_) retireRun(reason);
+  state_ = QStringLiteral("connecting");
+  sinceUtcMs_ = utcNowMs();
+  requestStart();
+  emit statusChanged(camera_.id);
+}
+
+// A new run waits until the previous one is finalized and torn down, so a
+// camera never holds two connections and its sessions never overlap.
+void CameraPipeline::requestStart() {
+  if (!retiring_.empty() || pendingTeardowns_ > 0) {
+    startPending_ = true;
+    return;
+  }
+  startPending_ = false;
+  startRun();
+}
 
 void CameraPipeline::startRun() {
   auto run = std::make_unique<Run>();
   run->id = nextRunId_++;
   run->owner = this;
+  run->mailbox = mailbox_;
   run->cam = camera_;
   run->isFile = camera_.kind == QLatin1String("file");
   run->gapAfterNs = static_cast<int64_t>(config_.gapAfterMs) * 1'000'000;
@@ -698,18 +814,22 @@ void CameraPipeline::startRun() {
   session.transport = run->isFile ? QStringLiteral("file") : camera_.transport;
   if (!store_.insertSession(session)) qWarning("camera %s: cannot insert session: %s", qPrintable(camera_.id), qPrintable(store_.lastError()));
 
-  run->ring = FrameRingWriter::create(makeRingName(QStringLiteral("cam:") + camera_.id), config_.ringSlots,
-                                      config_.ringMaxWidth, config_.ringMaxHeight);
+  // Named per session: a reader still mapped to the previous session's ring
+  // sees a new name and reopens instead of freezing on an unlinked segment.
+  run->ring = FrameRingWriter::create(makeRingName(QStringLiteral("cam:%1:%2").arg(camera_.id, run->sessionId)),
+                                      config_.ringSlots, config_.ringMaxWidth, config_.ringMaxHeight);
   if (!run->ring) qWarning("camera %s: cannot create frame ring", qPrintable(camera_.id));
 
   if (camera_.recordEnabled) {
+    run->diskPaused = refreshDiskPaused();
     if (!QDir().mkpath(run->recordDir)) {
       qWarning("camera %s: cannot create %s", qPrintable(camera_.id), qPrintable(run->recordDir));
       run->recordingState = QStringLiteral("error");
     } else {
-      run->recordingState = QStringLiteral("recording");
+      run->recordingState = run->diskPaused ? QStringLiteral("paused_disk") : QStringLiteral("recording");
     }
   }
+  nextDiskCheckNs_ = monoNowNs() + kDiskCheckIntervalNs;
 
   run->pipeline = gst_pipeline_new(nullptr);
   if (run->isFile) {
@@ -766,7 +886,6 @@ void CameraPipeline::startRun() {
   gst_bus_set_sync_handler(run->bus, Run::onBusSync, run.get(), nullptr);
 
   run_ = std::move(run);
-  checkDiskFloor();
   qInfo("camera %s: session %s starting (%s %s)", qPrintable(camera_.id), qPrintable(run_->sessionId),
         qPrintable(camera_.kind), qPrintable(redactUrl(camera_.mainUrl)));
   const GstStateChangeReturn ret = gst_element_set_state(run_->pipeline, run_->isFile ? GST_STATE_PAUSED : GST_STATE_PLAYING);
@@ -777,32 +896,55 @@ void CameraPipeline::startRun() {
   if (!tickTimer_.isActive()) tickTimer_.start();
 }
 
+// Below the floor no new segment may start. Pausing or resuming restarts the
+// run: the EOS closes the open file, and the next session opens its valve
+// (and its first file) at a clean start.
 void CameraPipeline::checkDiskFloor() {
-  if (!run_ || !camera_.recordEnabled || run_->diskPaused) return;
-  const int64_t freeBytes = freeBytesAt(run_->recordDir);
-  if (freeBytes < 0 || freeBytes >= config_.minFreeBytes) return;
-  run_->diskPaused = true;
-  run_->recordingState = QStringLiteral("paused_disk");
-  if (run_->valve) g_object_set(run_->valve, "drop", TRUE, nullptr);
-  qWarning("camera %s: free space %lld MB below floor %lld MB, recording paused until the next session start",
-           qPrintable(camera_.id), static_cast<long long>(freeBytes / (1024 * 1024)),
-           static_cast<long long>(config_.minFreeBytes / (1024 * 1024)));
+  const int64_t now = monoNowNs();
+  if (!camera_.recordEnabled || now < nextDiskCheckNs_) return;
+  nextDiskCheckNs_ = now + kDiskCheckIntervalNs;
+  if (refreshDiskPaused() == run_->diskPaused) return;
+  restartRun(QStringLiteral("stopped"));
+}
+
+bool CameraPipeline::refreshDiskPaused() {
+  const int64_t freeBytes = freeBytesAt(config_.recordingsDir + QLatin1Char('/') + camera_.id);
+  if (freeBytes < 0) return diskPaused_;
+  const int64_t resumeBytes = config_.minFreeBytes + std::max(config_.minFreeBytes / 10, kDiskResumeHeadroomBytes);
+  if (!diskPaused_ && freeBytes < config_.minFreeBytes) {
+    diskPaused_ = true;
+    qWarning("camera %s: free space %lld MB below floor %lld MB, recording paused", qPrintable(camera_.id),
+             static_cast<long long>(freeBytes / (1024 * 1024)), static_cast<long long>(config_.minFreeBytes / (1024 * 1024)));
+  } else if (diskPaused_ && freeBytes >= resumeBytes) {
+    diskPaused_ = false;
+    qInfo("camera %s: free space %lld MB, recording resumed", qPrintable(camera_.id),
+          static_cast<long long>(freeBytes / (1024 * 1024)));
+  }
+  return diskPaused_;
+}
+
+CameraPipeline::Run* CameraPipeline::findRun(uint64_t runId) const {
+  if (run_ && run_->id == runId) return run_.get();
+  for (const std::unique_ptr<Run>& run : retiring_)
+    if (run->id == runId) return run.get();
+  return nullptr;
 }
 
 void CameraPipeline::drainMessages(uint64_t runId) {
-  if (!run_ || run_->id != runId) return;
-  drainNow();
+  Run* run = findRun(runId);
+  if (!run) return;
+  drain(*run);
+  if (run != run_.get() && run->eosSeen) finishRetire(runId);
 }
 
-void CameraPipeline::drainNow() {
-  if (!run_) return;
-  for (GstMessage* msg : run_->messages.take()) {
-    if (run_) handleMessage(msg);
+void CameraPipeline::drain(Run& run) {
+  for (GstMessage* msg : run.messages.take()) {
+    handleMessage(run, msg);
     gst_message_unref(msg);
   }
 }
 
-void CameraPipeline::handleMessage(GstMessage* msg) {
+void CameraPipeline::handleMessage(Run& run, GstMessage* msg) {
   switch (GST_MESSAGE_TYPE(msg)) {
     case GST_MESSAGE_ERROR: {
       GError* err = nullptr;
@@ -812,88 +954,90 @@ void CameraPipeline::handleMessage(GstMessage* msg) {
       const QString detail = dbg ? redactText(QString::fromUtf8(dbg)).simplified() : QString();
       if (err) g_error_free(err);
       g_free(dbg);
-      if (run_->stopping) break;
+      if (run.stopping) break;
       qWarning("camera %s: pipeline error: %s%s", qPrintable(camera_.id), qPrintable(text),
                detail.isEmpty() ? "" : qPrintable(QStringLiteral(" (") + detail.left(200) + QLatin1Char(')')));
       failRun(QStringLiteral("error"), text);
       break;
     }
     case GST_MESSAGE_EOS:
-      if (run_->stopping) break;
+      if (run.stopping) break;
       qWarning("camera %s: end of stream", qPrintable(camera_.id));
       failRun(QStringLiteral("eos"), QStringLiteral("end of stream"));
       break;
     case GST_MESSAGE_ELEMENT: {
       const GstStructure* s = gst_message_get_structure(msg);
       if (!s) break;
-      if (gst_structure_has_name(s, "splitmuxsink-fragment-opened")) onFragmentOpened(s);
-      else if (gst_structure_has_name(s, "splitmuxsink-fragment-closed")) onFragmentClosed(s);
+      if (gst_structure_has_name(s, "splitmuxsink-fragment-opened")) onFragmentOpened(run, s);
+      else if (gst_structure_has_name(s, "splitmuxsink-fragment-closed")) onFragmentClosed(run, s);
       break;
     }
     case GST_MESSAGE_SEGMENT_DONE:
-      if (run_->isFile && !run_->stopping) run_->seekSegment(false);
+      if (run.isFile && !run.stopping) run.seekSegment(false);
       break;
     default:
       break;
   }
 }
 
-int64_t CameraPipeline::utcForPts(int64_t ptsNs) const {
-  if (!run_) return 0;
-  std::lock_guard<std::mutex> lock(run_->mutex);
-  return run_->stats.clock.started() ? run_->stats.clock.utcForPts(ptsNs) : utcNowMs();
+int64_t CameraPipeline::utcForPts(const Run& run, int64_t ptsNs) const {
+  {
+    std::lock_guard<std::mutex> lock(run.mutex);
+    if (run.stats.clock.started()) return run.stats.clock.utcForPts(ptsNs);
+  }
+  qWarning("camera %s: session %s has no clock yet, segment time unknown", qPrintable(camera_.id), qPrintable(run.sessionId));
+  return 0;
 }
 
-void CameraPipeline::onFragmentOpened(const GstStructure* s) {
+void CameraPipeline::onFragmentOpened(Run& run, const GstStructure* s) {
   guint fragmentId = 0;
-  guint64 runningTime = 0;
-  const gchar* location = gst_structure_get_string(s, "location");
+  int64_t runningTime = 0;
   gst_structure_get_uint(s, "fragment-id", &fragmentId);
-  gst_structure_get_uint64(s, "running-time", &runningTime);
-  if (runningTime == GST_CLOCK_TIME_NONE) {
-    std::lock_guard<std::mutex> lock(run_->mutex);
-    runningTime = static_cast<guint64>(std::max<int64_t>(run_->stats.lastPacketRt, 0));
-  }
+  // splitmuxsink opens a fragment at EOS even when no buffer ever reached
+  // it; such a fragment has no running time and no media.
+  if (!readTime(s, "running-time", runningTime)) return;
+  const gchar* location = gst_structure_get_string(s, "location");
   RecordingSegment seg;
   seg.id = newId();
   seg.cameraId = camera_.id;
-  seg.sessionId = run_->sessionId;
+  seg.sessionId = run.sessionId;
   seg.path = location ? QString::fromUtf8(location) : QString();
   seg.state = QStringLiteral("recording");
-  seg.startPtsNs = static_cast<int64_t>(runningTime);
-  seg.startUtcMs = utcForPts(seg.startPtsNs);
+  seg.startPtsNs = runningTime;
+  seg.startUtcMs = utcForPts(run, seg.startPtsNs);
   seg.createdUtcMs = utcNowMs();
   if (!store_.insertSegment(seg)) {
     qWarning("camera %s: cannot insert segment: %s", qPrintable(camera_.id), qPrintable(store_.lastError()));
     return;
   }
-  run_->openSegments.insert(fragmentId, seg.id);
-  run_->openSegmentPaths.insert(seg.id, seg.path);
-  run_->currentSegmentId = seg.id;
-  checkDiskFloor();
+  run.openSegments.insert(fragmentId, seg.id);
+  run.openSegmentPaths.insert(seg.id, seg.path);
+  run.currentSegmentId = seg.id;
+  if (&run == run_.get()) nextDiskCheckNs_ = 0;
   emit statusChanged(camera_.id);
 }
 
-void CameraPipeline::onFragmentClosed(const GstStructure* s) {
+void CameraPipeline::onFragmentClosed(Run& run, const GstStructure* s) {
   guint fragmentId = 0;
-  guint64 runningTime = 0, offset = 0, duration = 0;
-  const gchar* location = gst_structure_get_string(s, "location");
+  int64_t runningTime = 0, offset = 0, duration = 0;
   gst_structure_get_uint(s, "fragment-id", &fragmentId);
-  const bool hasEnd = gst_structure_get_uint64(s, "running-time", &runningTime) && runningTime != GST_CLOCK_TIME_NONE;
-  const bool hasOffset = gst_structure_get_uint64(s, "fragment-offset", &offset) && offset != GST_CLOCK_TIME_NONE;
-  const bool hasDuration = gst_structure_get_uint64(s, "fragment-duration", &duration) && duration != GST_CLOCK_TIME_NONE;
+  const bool hasEnd = readTime(s, "running-time", runningTime);
+  const bool hasOffset = readTime(s, "fragment-offset", offset);
+  const bool hasDuration = readTime(s, "fragment-duration", duration);
+  const gchar* location = gst_structure_get_string(s, "location");
   const QString path = location ? QString::fromUtf8(location) : QString();
 
-  QString segId = run_->openSegments.take(fragmentId);
+  QString segId = run.openSegments.take(fragmentId);
   if (segId.isEmpty() && !path.isEmpty()) {
     if (const auto byPath = store_.getSegmentByPath(path)) segId = byPath->id;
   }
   if (!hasEnd && !hasDuration) {
-    // A fragment that closed without data: let the file itself decide.
-    if (!segId.isEmpty()) {
-      run_->openSegmentPaths.remove(segId);
-      finalizeLeftoverSegment(segId, path);
-      if (run_->currentSegmentId == segId) run_->currentSegmentId.clear();
+    if (segId.isEmpty()) {
+      if (path.startsWith(run.recordDir + QLatin1Char('/'))) QFile::remove(path);
+    } else if (run.currentSegmentId == segId) {
+      // Closed without data: the row stays open and the file is probed once
+      // the pipeline has released it.
+      run.currentSegmentId.clear();
     }
     return;
   }
@@ -902,11 +1046,10 @@ void CameraPipeline::onFragmentClosed(const GstStructure* s) {
     RecordingSegment seg;
     seg.id = newId();
     seg.cameraId = camera_.id;
-    seg.sessionId = run_->sessionId;
+    seg.sessionId = run.sessionId;
     seg.path = path;
-    seg.startPtsNs = hasOffset ? static_cast<int64_t>(offset)
-                               : (hasEnd && hasDuration ? static_cast<int64_t>(runningTime - duration) : 0);
-    seg.startUtcMs = utcForPts(seg.startPtsNs);
+    seg.startPtsNs = hasOffset ? offset : (hasEnd && hasDuration ? runningTime - duration : 0);
+    seg.startUtcMs = utcForPts(run, seg.startPtsNs);
     seg.createdUtcMs = utcNowMs();
     if (!store_.insertSegment(seg)) return;
     segId = seg.id;
@@ -914,28 +1057,39 @@ void CameraPipeline::onFragmentClosed(const GstStructure* s) {
   } else if (const auto existing = store_.getSegment(segId)) {
     startPts = existing->startPtsNs;
   }
-  run_->openSegmentPaths.remove(segId);
-  const int64_t endPts = hasEnd ? static_cast<int64_t>(runningTime) : startPts + static_cast<int64_t>(duration);
+  run.openSegmentPaths.remove(segId);
+  // At EOS running-time is the start of the last buffer; offset plus
+  // duration also covers that buffer.
+  const int64_t endPts = hasOffset && hasDuration ? offset + duration : hasEnd ? runningTime : startPts + duration;
   const int64_t bytes = QFileInfo(path).size();
-  const int64_t now = utcNowMs();
-  store_.finalizeSegment(segId, endPts, utcForPts(endPts), bytes, now);
-  if (run_->currentSegmentId == segId) run_->currentSegmentId.clear();
+  store_.finalizeSegment(segId, endPts, utcForPts(run, endPts), bytes, utcNowMs());
+  if (run.currentSegmentId == segId) run.currentSegmentId.clear();
   qInfo("camera %s: segment %s finalized (%.1f s, %lld bytes)", qPrintable(camera_.id), qPrintable(QFileInfo(path).fileName()),
         static_cast<double>(endPts - startPts) / 1e9, static_cast<long long>(bytes));
 }
 
-void CameraPipeline::finalizeLeftoverSegment(const QString& segmentId, const QString& path) {
-  const auto row = store_.getSegment(segmentId);
-  if (!row || row->state != QLatin1String("recording")) return;
-  const SegmentProbe probe = probeSegmentFile(path);
-  const int64_t now = utcNowMs();
-  if (probe.readable) {
-    const int64_t endPts = row->startPtsNs + probe.durationNs;
-    store_.finalizeSegment(segmentId, endPts, row->startUtcMs + probe.durationNs / 1'000'000, probe.bytes, now);
-  } else {
-    store_.setSegmentState(segmentId, QStringLiteral("damaged"));
-    qWarning("camera %s: segment %s left unreadable", qPrintable(camera_.id), qPrintable(path));
+void CameraPipeline::onTornDown() {
+  --pendingTeardowns_;
+  if (startPending_ && retiring_.empty() && pendingTeardowns_ == 0) {
+    startPending_ = false;
+    if (wantRunning_ && !run_) startRun();
   }
+  emitIdleIfDone();
+}
+
+void CameraPipeline::onLeftoverProbed(const QString& segmentId, const SegmentProbe& probe) {
+  --pendingProbes_;
+  const auto row = store_.getSegment(segmentId);
+  if (row && row->state == QLatin1String("recording")) {
+    if (probe.readable) {
+      store_.finalizeSegment(segmentId, row->startPtsNs + probe.durationNs, row->startUtcMs + probe.durationNs / 1'000'000,
+                             probe.bytes, utcNowMs());
+    } else {
+      store_.markSegmentDamaged(segmentId, probe.bytes);
+      qWarning("camera %s: segment %s left unreadable", qPrintable(camera_.id), qPrintable(QFileInfo(row->path).fileName()));
+    }
+  }
+  emitIdleIfDone();
 }
 
 void CameraPipeline::onFirstPacket(uint64_t runId) {
@@ -946,16 +1100,13 @@ void CameraPipeline::onFirstPacket(uint64_t runId) {
     firstPts = run_->stats.clock.firstPtsNs();
     startedUtc = run_->stats.clock.startedUtcMs();
   }
-  store_.setSessionFirstPts(run_->sessionId, firstPts);
+  store_.setSessionAnchor(run_->sessionId, firstPts, startedUtc);
   run_->online = true;
   run_->onlineSinceMono = monoNowNs();
   state_ = QStringLiteral("online");
   sinceUtcMs_ = startedUtc;
   lastError_.clear();
-  if (!openGapId_.isEmpty()) {
-    store_.closeGap(openGapId_, startedUtc);
-    openGapId_.clear();
-  }
+  closeOpenGap(startedUtc);
   qInfo("camera %s: online, session %s first pts %lld ns after %lld ms", qPrintable(camera_.id), qPrintable(run_->sessionId),
         static_cast<long long>(firstPts), static_cast<long long>((monoNowNs() - run_->startedMonoNs) / 1'000'000));
   emit statusChanged(camera_.id);
@@ -977,10 +1128,20 @@ void CameraPipeline::onCapsChanged(uint64_t runId) {
   emit statusChanged(camera_.id);
 }
 
+// The session closes and a new one opens at once. Only a session that jumps
+// again soon after going online takes the reconnect backoff, so a stream with
+// broken timestamps cannot spin connections.
 void CameraPipeline::onPtsBackwards(uint64_t runId) {
   if (!run_ || run_->id != runId || run_->stopping) return;
-  qWarning("camera %s: pts jumped backwards, restarting session", qPrintable(camera_.id));
-  failRun(QString::fromLatin1(SessionClock::kBackwardsReason), QStringLiteral("pts jumped backwards"));
+  const QString reason = QString::fromLatin1(SessionClock::kBackwardsReason);
+  if (!run_->online || monoNowNs() - run_->onlineSinceMono < kBackwardsRestartAfterNs) {
+    qWarning("camera %s: pts jumped backwards soon after connecting, reconnecting", qPrintable(camera_.id));
+    failRun(reason, QStringLiteral("pts jumped backwards"));
+    return;
+  }
+  qWarning("camera %s: pts jumped backwards, starting a new session", qPrintable(camera_.id));
+  lastError_ = QStringLiteral("pts jumped backwards");
+  restartRun(reason);
 }
 
 void CameraPipeline::onNoMorePads(uint64_t runId) {
@@ -996,7 +1157,7 @@ void CameraPipeline::onNoMorePads(uint64_t runId) {
 void CameraPipeline::failRun(const QString& reason, const QString& error) {
   if (!run_) return;
   if (!error.isEmpty()) lastError_ = error;
-  endRun(reason);
+  retireRun(reason);
   if (wantRunning_) {
     state_ = QStringLiteral("reconnecting");
     sinceUtcMs_ = utcNowMs();
@@ -1013,66 +1174,100 @@ void CameraPipeline::scheduleReconnect() {
   reconnectTimer_.start(static_cast<int>(delay));
 }
 
-void CameraPipeline::endRun(const QString& reason) {
-  if (!run_) return;
-  run_->stopping = true;
-  drainNow();
-  if (run_->chainReady.load(std::memory_order_acquire) && !run_->eosSeen && run_->teeSink) {
-    gst_pad_send_event(run_->teeSink, gst_event_new_eos());
-    const int64_t deadline = monoNowNs() + kStopWaitMs * 1'000'000;
-    while (!run_->eosSeen) {
-      const int64_t leftMs = (deadline - monoNowNs()) / 1'000'000;
-      if (leftMs <= 0) {
-        qWarning("camera %s: no EOS within %lld ms, forcing teardown", qPrintable(camera_.id), static_cast<long long>(kStopWaitMs));
-        break;
-      }
-      run_->messages.waitFor(std::min<int64_t>(leftMs, 100));
-      drainNow();
-    }
+// Ends the session now and hands the pipeline to the retiring list. The EOS
+// is serialized, so sending it takes the tee's stream lock, which a streaming
+// thread stalled on a slow disk can hold indefinitely: it goes out from a
+// GStreamer pool thread, and a timer bounds the wait for it.
+void CameraPipeline::retireRun(const QString& reason) {
+  std::unique_ptr<Run> run = std::move(run_);
+  tickTimer_.stop();
+  run->stopping = true;
+  drain(*run);
+  closeSession(*run, reason);
+  const uint64_t runId = run->id;
+  if (run->chainReady.load(std::memory_order_acquire) && !run->eosSeen && run->teeSink) {
+    auto job = std::make_unique<Run::EosJob>();
+    job->pad = GST_PAD(gst_object_ref(run->teeSink));
+    job->mailbox = mailbox_;
+    job->owner = this;
+    job->runId = runId;
+    gst_element_call_async(run->tee, Run::sendEos, job.release(), nullptr);
+    QTimer::singleShot(kStopWait, this, [this, runId] { finishRetire(runId); });
+  } else {
+    QMetaObject::invokeMethod(this, [this, runId] { finishRetire(runId); }, Qt::QueuedConnection);
   }
-  gst_element_set_state(run_->pipeline, GST_STATE_NULL);
-  drainNow();
+  retiring_.push_back(std::move(run));
+}
 
-  const auto leftovers = run_->openSegmentPaths;
-  for (auto it = leftovers.cbegin(); it != leftovers.cend(); ++it) finalizeLeftoverSegment(it.key(), it.value());
-  run_->openSegments.clear();
-  run_->openSegmentPaths.clear();
-  run_->currentSegmentId.clear();
-
+void CameraPipeline::closeSession(Run& run, const QString& reason) {
   const int64_t now = utcNowMs();
-  const bool graceful = reason == QLatin1String("stopped") || reason == QLatin1String("shutdown");
   uint64_t packets = 0;
-  int64_t lastPacketUtc = 0;
+  int64_t lastPacketEndUtc = 0;
   {
-    std::lock_guard<std::mutex> lock(run_->mutex);
-    packets = run_->stats.packets;
-    lastPacketUtc = run_->stats.lastPacketUtc;
+    std::lock_guard<std::mutex> lock(run.mutex);
+    packets = run.stats.packets;
+    lastPacketEndUtc = run.stats.lastPacketEndUtc;
+    if (run.stats.lastFrameRecvMono > 0) lastFrameRecvMonoNs_ = run.stats.lastFrameRecvMono;
   }
+  if (run.cam.recordEnabled)
+    recordingState_ = run.recordingState == QLatin1String("error") ? run.recordingState : QStringLiteral("recording");
+  const bool graceful = reason == QLatin1String("stopped") || reason == QLatin1String("shutdown");
   if (graceful) {
-    if (!openGapId_.isEmpty()) {
-      store_.closeGap(openGapId_, now);
-      openGapId_.clear();
-    }
+    closeOpenGap(now);
   } else if (packets > 0 && openGapId_.isEmpty()) {
     ReceiveGap gap;
     gap.id = newId();
     gap.cameraId = camera_.id;
-    gap.sessionId = run_->sessionId;
-    gap.fromUtcMs = lastPacketUtc;
+    gap.sessionId = run.sessionId;
+    gap.fromUtcMs = lastPacketEndUtc;
     gap.reason = reason == QLatin1String("eos") ? QStringLiteral("eos") : QStringLiteral("reconnect");
     if (store_.insertGap(gap)) openGapId_ = gap.id;
   }
-  store_.endSession(run_->sessionId, reason, now);
-  qInfo("camera %s: session %s ended (%s)", qPrintable(camera_.id), qPrintable(run_->sessionId), qPrintable(reason));
-  run_->ring.reset();
-  run_.reset();
-  if (tickTimer_.isActive()) tickTimer_.stop();
+  store_.endSession(run.sessionId, reason, std::max(now, lastPacketEndUtc));
+  qInfo("camera %s: session %s ended (%s)", qPrintable(camera_.id), qPrintable(run.sessionId), qPrintable(reason));
+}
+
+void CameraPipeline::finishRetire(uint64_t runId) {
+  const auto it = std::find_if(retiring_.begin(), retiring_.end(),
+                               [runId](const std::unique_ptr<Run>& r) { return r->id == runId; });
+  if (it == retiring_.end()) return;
+  std::unique_ptr<Run> run = std::move(*it);
+  retiring_.erase(it);
+  drain(*run);
+  if (run->chainReady.load(std::memory_order_acquire) && !run->eosSeen)
+    qWarning("camera %s: session %s saw no EOS, forcing teardown", qPrintable(camera_.id), qPrintable(run->sessionId));
+  disposeRun(std::move(run));
+}
+
+void CameraPipeline::disposeRun(std::unique_ptr<Run> run) {
+  {
+    std::lock_guard<std::mutex> lock(run->ringMutex);
+    run->ring.reset();
+  }
+  auto job = std::make_unique<Run::Teardown>();
+  for (auto it = run->openSegmentPaths.cbegin(); it != run->openSegmentPaths.cend(); ++it)
+    job->leftovers.emplace_back(it.key(), it.value());
+  ++pendingTeardowns_;
+  pendingProbes_ += static_cast<int>(job->leftovers.size());
+  GstElement* pipeline = run->pipeline;
+  job->run = std::move(run);
+  gst_element_call_async(pipeline, Run::teardown, job.release(), nullptr);
+}
+
+void CameraPipeline::closeOpenGap(int64_t toUtcMs) {
+  if (openGapId_.isEmpty()) return;
+  store_.closeGap(openGapId_, toUtcMs);
+  openGapId_.clear();
+}
+
+void CameraPipeline::emitIdleIfDone() {
+  if (idle()) emit idleReached(camera_.id);
 }
 
 void CameraPipeline::tick() {
   if (!run_ || run_->stopping) return;
   uint64_t packets = 0, bytes = 0, resumeCount = 0;
-  int64_t lastPacketMono = 0, lastPacketUtc = 0, resumeGapStartUtc = 0, resumeUtc = 0;
+  int64_t lastPacketMono = 0, lastPacketEndUtc = 0, resumeFromUtc = 0, resumeToUtc = 0;
   {
     std::lock_guard<std::mutex> lock(run_->mutex);
     const RunStats& st = run_->stats;
@@ -1080,9 +1275,9 @@ void CameraPipeline::tick() {
     bytes = st.bytes;
     resumeCount = st.resumeCount;
     lastPacketMono = st.lastPacketMono;
-    lastPacketUtc = st.lastPacketUtc;
-    resumeGapStartUtc = st.resumeGapStartUtc;
-    resumeUtc = st.resumeUtc;
+    lastPacketEndUtc = st.lastPacketEndUtc;
+    resumeFromUtc = st.resumeFromUtc;
+    resumeToUtc = st.resumeToUtc;
   }
   const int64_t now = monoNowNs();
   if (packets == 0) {
@@ -1099,15 +1294,14 @@ void CameraPipeline::tick() {
   if (resumeCount > run_->seenResume) {
     run_->seenResume = resumeCount;
     if (!openGapId_.isEmpty()) {
-      store_.closeGap(openGapId_, resumeUtc);
-      openGapId_.clear();
+      closeOpenGap(resumeToUtc);
     } else {
       ReceiveGap gap;
       gap.id = newId();
       gap.cameraId = camera_.id;
       gap.sessionId = run_->sessionId;
-      gap.fromUtcMs = resumeGapStartUtc;
-      gap.toUtcMs = resumeUtc;
+      gap.fromUtcMs = resumeFromUtc;
+      gap.toUtcMs = resumeToUtc;
       gap.reason = QStringLiteral("timeout");
       store_.insertGap(gap);
     }
@@ -1121,7 +1315,7 @@ void CameraPipeline::tick() {
     gap.id = newId();
     gap.cameraId = camera_.id;
     gap.sessionId = run_->sessionId;
-    gap.fromUtcMs = lastPacketUtc;
+    gap.fromUtcMs = lastPacketEndUtc;
     gap.reason = QStringLiteral("timeout");
     if (store_.insertGap(gap)) openGapId_ = gap.id;
     qWarning("camera %s: no packets for %lld ms", qPrintable(camera_.id), static_cast<long long>(ageMs));
@@ -1133,6 +1327,7 @@ void CameraPipeline::tick() {
   }
   if (run_->online && backoff_.attempts() > 0 && now - run_->onlineSinceMono > kHealthyResetNs && ageMs < config_.staleAfterMs)
     backoff_.reset();
+  checkDiskFloor();
 }
 
 CameraStatus CameraPipeline::status() const {
@@ -1142,50 +1337,56 @@ CameraStatus CameraPipeline::status() const {
   s.sinceUtcMs = sinceUtcMs_;
   s.reconnects = reconnects_;
   s.lastError = lastError_;
-  s.recording = camera_.recordEnabled ? QStringLiteral("recording") : QStringLiteral("disabled");
-  if (!run_) return s;
-  s.sessionId = run_->sessionId;
-  s.recording = run_->recordingState;
-  s.currentSegmentId = run_->currentSegmentId;
+  if (!camera_.recordEnabled) s.recording = QStringLiteral("disabled");
+  else if (run_) s.recording = run_->recordingState;
+  else s.recording = diskPaused_ ? QStringLiteral("paused_disk") : recordingState_;
   const int64_t now = monoNowNs();
-  std::vector<int64_t> latencySamples;
-  {
-    std::lock_guard<std::mutex> lock(run_->mutex);
-    RunStats& st = run_->stats;
-    pruneFrameStats(st, now);
-    s.codec = st.codec;
-    s.width = st.width;
-    s.height = st.height;
-    if (st.frames > 0) {
-      s.lastFrameRecvMonoNs = st.lastFrameRecvMono;
-      s.lastFrameAgeMs = (now - st.lastFrameRecvMono) / 1'000'000;
-      s.stale = s.lastFrameAgeMs > config_.staleAfterMs;
-    }
-    s.fpsNew = static_cast<double>(st.frameTimes.size()) * 1e9 / static_cast<double>(kFpsWindowNs);
-    latencySamples.reserve(st.latencies.size());
-    for (const auto& [mono, latency] : st.latencies) latencySamples.push_back(latency);
-    s.drops = st.drops;
-    if (st.jitterbuffer) {
-      GstStructure* stats = nullptr;
-      g_object_get(st.jitterbuffer, "stats", &stats, nullptr);
-      if (stats) {
-        guint64 lost = 0, late = 0;
-        gst_structure_get_uint64(stats, "num-lost", &lost);
-        gst_structure_get_uint64(stats, "num-late", &late);
-        s.drops += static_cast<int64_t>(lost + late);
-        gst_structure_free(stats);
+  int64_t lastFrameMono = lastFrameRecvMonoNs_;
+  if (run_) {
+    s.sessionId = run_->sessionId;
+    s.currentSegmentId = run_->currentSegmentId;
+    std::vector<int64_t> latencySamples;
+    {
+      std::lock_guard<std::mutex> lock(run_->mutex);
+      RunStats& st = run_->stats;
+      pruneFrameStats(st, now);
+      s.codec = st.codec;
+      s.width = st.width;
+      s.height = st.height;
+      if (st.lastFrameRecvMono > 0) lastFrameMono = st.lastFrameRecvMono;
+      s.fpsNew = static_cast<double>(st.frameTimes.size()) * 1e9 / static_cast<double>(kFpsWindowNs);
+      latencySamples.reserve(st.latencies.size());
+      for (const auto& [mono, latency] : st.latencies) latencySamples.push_back(latency);
+      s.drops = st.drops;
+      if (st.jitterbuffer) {
+        GstStructure* stats = nullptr;
+        g_object_get(st.jitterbuffer, "stats", &stats, nullptr);
+        if (stats) {
+          guint64 lost = 0, late = 0;
+          gst_structure_get_uint64(stats, "num-lost", &lost);
+          gst_structure_get_uint64(stats, "num-late", &late);
+          s.drops += static_cast<int64_t>(lost + late);
+          gst_structure_free(stats);
+        }
       }
     }
+    s.latency = percentiles(latencySamples);
+    if (run_->chainReady.load(std::memory_order_acquire) && run_->viewQueue) {
+      guint level = 0;
+      g_object_get(run_->viewQueue, "current-level-buffers", &level, nullptr);
+      s.queueDepth = static_cast<int>(level);
+    }
+    if (run_->ring) {
+      const RingInfo& info = run_->ring->info();
+      s.frameRing = RingRef{info.name, info.slotCount, info.slotBytes, info.maxWidth, info.maxHeight, QStringLiteral("BGRA")};
+    }
   }
-  s.latency = percentiles(latencySamples);
-  if (run_->chainReady.load(std::memory_order_acquire) && run_->viewQueue) {
-    guint level = 0;
-    g_object_get(run_->viewQueue, "current-level-buffers", &level, nullptr);
-    s.queueDepth = static_cast<int>(level);
-  }
-  if (run_->ring) {
-    const RingInfo& info = run_->ring->info();
-    s.frameRing = RingRef{info.name, info.slotCount, info.slotBytes, info.maxWidth, info.maxHeight, QStringLiteral("BGRA")};
+  // Carried across sessions within one core run, so a reconnecting camera
+  // still reports how long ago its last frame arrived.
+  if (lastFrameMono > 0) {
+    s.lastFrameRecvMonoNs = lastFrameMono;
+    s.lastFrameAgeMs = (now - lastFrameMono) / 1'000'000;
+    s.stale = s.lastFrameAgeMs > config_.staleAfterMs;
   }
   return s;
 }

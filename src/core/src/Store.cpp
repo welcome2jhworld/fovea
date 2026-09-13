@@ -1,5 +1,8 @@
 #include "fovea/core/Store.h"
 #include "fovea/Ids.h"
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
 #include <QSqlError>
 #include <QSqlQuery>
 #include <QUuid>
@@ -9,6 +12,7 @@ namespace fovea::core {
 namespace {
 
 constexpr int kSchemaVersion = 1;
+const QString kQuarantineDir = QStringLiteral("quarantine");
 
 QVariant text(const QString& s) { return s.isNull() ? QVariant(QStringLiteral("")) : QVariant(s); }
 
@@ -167,30 +171,84 @@ bool Store::migrate() {
   return db_.commit();
 }
 
-RecoveryReport Store::recoverOnStartup(const std::function<SegmentProbe(const QString&)>& probe, int64_t nowUtcMs) {
+RecoveryReport Store::recoverOnStartup(const std::function<SegmentProbe(const QString&)>& probe, int64_t nowUtcMs,
+                                       const QString& recordingsDir) {
   RecoveryReport r;
   for (const RecordingSegment& seg : listSegmentsByState(QStringLiteral("recording"))) {
     const SegmentProbe p = probe(seg.path);
-    if (p.bytes == 0 && !p.readable) {
-      setSegmentState(seg.id, QStringLiteral("damaged"));
-      ++r.segmentsMissing;
-      continue;
-    }
     if (p.readable) {
-      const int64_t endPts = seg.startPtsNs + p.durationNs;
-      const int64_t endUtc = seg.startUtcMs + p.durationNs / 1000000;
-      finalizeSegment(seg.id, endPts, endUtc, p.bytes, nowUtcMs);
+      finalizeSegment(seg.id, seg.startPtsNs + p.durationNs, seg.startUtcMs + p.durationNs / 1'000'000, p.bytes, nowUtcMs);
       ++r.segmentsFinalized;
     } else {
-      setSegmentState(seg.id, QStringLiteral("damaged"));
-      ++r.segmentsDamaged;
+      markSegmentDamaged(seg.id, p.bytes);
+      ++(p.bytes == 0 ? r.segmentsMissing : r.segmentsDamaged);
     }
   }
+  if (!recordingsDir.isEmpty()) {
+    const QStringList cameraDirs = QDir(recordingsDir).entryList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name);
+    for (const QString& cameraId : cameraDirs) {
+      if (cameraId == kQuarantineDir) continue;
+      const QString dir = recordingsDir + QLatin1Char('/') + cameraId;
+      // Name order adopts fragment N-1 before N, so N can start where N-1 ended.
+      for (const QString& name : QDir(dir).entryList({QStringLiteral("*.mkv")}, QDir::Files, QDir::Name)) {
+        const QString path = dir + QLatin1Char('/') + name;
+        if (getSegmentByPath(path)) continue;
+        if (adoptRecordingFile(probe, nowUtcMs, cameraId, path)) {
+          ++r.filesAdopted;
+          continue;
+        }
+        const QString target = recordingsDir + QLatin1Char('/') + kQuarantineDir + QLatin1Char('/') + cameraId;
+        if (QDir().mkpath(target) && QFile::rename(path, target + QLatin1Char('/') + name)) ++r.filesQuarantined;
+      }
+    }
+  }
+  QSqlQuery gaps(db_);
+  gaps.prepare(QStringLiteral("UPDATE receive_gaps SET to_utc_ms=:now WHERE to_utc_ms=0"));
+  gaps.bindValue(":now", static_cast<qlonglong>(nowUtcMs));
+  if (gaps.exec()) r.gapsClosed = gaps.numRowsAffected();
   QSqlQuery q(db_);
-  q.prepare(QStringLiteral("UPDATE stream_sessions SET ended_utc_ms=:now, end_reason='shutdown' WHERE ended_utc_ms=0"));
-  q.bindValue(":now", static_cast<qlonglong>(nowUtcMs));
+  q.prepare(QStringLiteral(
+      "UPDATE stream_sessions SET end_reason='shutdown', ended_utc_ms=MAX(started_utc_ms, COALESCE((SELECT MAX(end_utc_ms)"
+      " FROM recording_segments WHERE session_id=stream_sessions.id AND state='finalized'), 0)) WHERE ended_utc_ms=0"));
   if (q.exec()) r.sessionsClosed = q.numRowsAffected();
   return r;
+}
+
+bool Store::adoptRecordingFile(const std::function<SegmentProbe(const QString&)>& probe, int64_t nowUtcMs,
+                               const QString& cameraId, const QString& path) {
+  const QString base = QFileInfo(path).completeBaseName();
+  const qsizetype sep = base.lastIndexOf(QLatin1Char('_'));
+  bool numbered = false;
+  const int fragment = sep > 0 ? base.mid(sep + 1).toInt(&numbered) : 0;
+  if (!numbered) return false;
+  const auto session = getSession(base.left(sep));
+  if (!session || session->cameraId != cameraId) return false;
+
+  RecordingSegment seg;
+  seg.id = newId();
+  seg.cameraId = cameraId;
+  seg.sessionId = session->id;
+  seg.path = path;
+  seg.state = QStringLiteral("recording");
+  seg.startUtcMs = session->startedUtcMs;
+  seg.createdUtcMs = nowUtcMs;
+  std::optional<RecordingSegment> previous;
+  if (fragment > 0)
+    previous = getSegmentByPath(QStringLiteral("%1/%2_%3.mkv").arg(QFileInfo(path).path(), session->id,
+                                                                   QString::number(fragment - 1).rightJustified(5, QLatin1Char('0'))));
+  if (previous && previous->endUtcMs > 0) {
+    seg.startPtsNs = previous->endPtsNs;
+    seg.startUtcMs = previous->endUtcMs;
+  } else if (fragment == 0 && session->firstPtsNs >= 0) {
+    seg.startPtsNs = session->firstPtsNs;
+  }
+  if (!insertSegment(seg)) return false;
+  const SegmentProbe p = probe(path);
+  if (p.readable)
+    finalizeSegment(seg.id, seg.startPtsNs + p.durationNs, seg.startUtcMs + p.durationNs / 1'000'000, p.bytes, nowUtcMs);
+  else
+    markSegmentDamaged(seg.id, p.bytes);
+  return true;
 }
 
 QVector<Camera> Store::listCameras(bool includeDeleted) {
@@ -262,17 +320,33 @@ bool Store::updateCamera(const Camera& c) {
   return q.numRowsAffected() == 1;
 }
 
+// One transaction: a deleted camera must never keep playable segments.
 bool Store::softDeleteCamera(const QString& id, int64_t nowUtcMs) {
+  if (!db_.transaction()) {
+    lastError_ = db_.lastError().text();
+    return false;
+  }
   QSqlQuery q(db_);
   q.prepare(QStringLiteral("UPDATE cameras SET deleted_utc_ms=:now, enabled=0 WHERE id=:id AND deleted_utc_ms=0"));
   q.bindValue(":now", static_cast<qlonglong>(nowUtcMs));
   q.bindValue(":id", text(id));
-  if (!q.exec()) { lastError_ = q.lastError().text(); return false; }
-  if (q.numRowsAffected() != 1) return false;
-  QSqlQuery s(db_);
-  s.prepare(QStringLiteral("UPDATE recording_segments SET state='deleted' WHERE camera_id=:id AND state!='deleted'"));
-  s.bindValue(":id", id);
-  return s.exec();
+  if (!q.exec() || q.numRowsAffected() != 1) {
+    if (q.lastError().isValid()) lastError_ = q.lastError().text();
+    db_.rollback();
+    return false;
+  }
+  QSqlQuery segments(db_);
+  segments.prepare(QStringLiteral("UPDATE recording_segments SET state='deleted' WHERE camera_id=:id AND state!='deleted'"));
+  segments.bindValue(":id", text(id));
+  if (!segments.exec()) {
+    lastError_ = segments.lastError().text();
+    db_.rollback();
+    return false;
+  }
+  if (db_.commit()) return true;
+  lastError_ = db_.lastError().text();
+  db_.rollback();
+  return false;
 }
 
 bool Store::insertSession(const StreamSession& s) {
@@ -291,10 +365,11 @@ bool Store::insertSession(const StreamSession& s) {
   return true;
 }
 
-bool Store::setSessionFirstPts(const QString& id, int64_t firstPtsNs) {
+bool Store::setSessionAnchor(const QString& id, int64_t firstPtsNs, int64_t startedUtcMs) {
   QSqlQuery q(db_);
-  q.prepare(QStringLiteral("UPDATE stream_sessions SET first_pts_ns=:pts WHERE id=:id AND first_pts_ns<0"));
+  q.prepare(QStringLiteral("UPDATE stream_sessions SET first_pts_ns=:pts, started_utc_ms=:utc WHERE id=:id AND first_pts_ns<0"));
   q.bindValue(":pts", static_cast<qlonglong>(firstPtsNs));
+  q.bindValue(":utc", static_cast<qlonglong>(startedUtcMs));
   q.bindValue(":id", text(id));
   return q.exec();
 }
@@ -369,19 +444,10 @@ bool Store::finalizeSegment(const QString& id, int64_t endPtsNs, int64_t endUtcM
   return q.exec() && q.numRowsAffected() == 1;
 }
 
-bool Store::setSegmentStart(const QString& id, int64_t startPtsNs, int64_t startUtcMs) {
+bool Store::markSegmentDamaged(const QString& id, int64_t bytes) {
   QSqlQuery q(db_);
-  q.prepare(QStringLiteral("UPDATE recording_segments SET start_pts_ns=:spts,start_utc_ms=:sutc WHERE id=:id"));
-  q.bindValue(":spts", static_cast<qlonglong>(startPtsNs));
-  q.bindValue(":sutc", static_cast<qlonglong>(startUtcMs));
-  q.bindValue(":id", text(id));
-  return q.exec();
-}
-
-bool Store::setSegmentState(const QString& id, const QString& state) {
-  QSqlQuery q(db_);
-  q.prepare(QStringLiteral("UPDATE recording_segments SET state=:state WHERE id=:id"));
-  q.bindValue(":state", text(state));
+  q.prepare(QStringLiteral("UPDATE recording_segments SET state='damaged', bytes=:bytes WHERE id=:id AND state='recording'"));
+  q.bindValue(":bytes", static_cast<qlonglong>(bytes));
   q.bindValue(":id", text(id));
   return q.exec();
 }
@@ -391,7 +457,7 @@ QVector<RecordingSegment> Store::listSegments(const QString& cameraId, int64_t f
   QSqlQuery q(db_);
   q.prepare(QStringLiteral(
       "SELECT * FROM recording_segments WHERE camera_id=:id AND state!='deleted'"
-      " AND (:to=0 OR start_utc_ms<=:to) AND (:from=0 OR end_utc_ms>=:from OR state='recording')"
+      " AND (:to=0 OR start_utc_ms<=:to) AND (:from=0 OR end_utc_ms>=:from OR state IN ('recording','damaged'))"
       " ORDER BY start_utc_ms DESC LIMIT :lim"));
   q.bindValue(":id", text(cameraId));
   q.bindValue(":from", static_cast<qlonglong>(fromUtcMs));

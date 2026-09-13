@@ -26,7 +26,9 @@ public:
   ~CameraManager() override;
 
   void start();
-  void stopAll();
+  // Stops every pipeline and refuses to start new ones. done runs once all
+  // recordings are finalized, or after ten seconds at most.
+  void stopAll(std::function<void()> done);
 
   QVector<Camera> cameras() const;
   std::optional<Camera> camera(const QString& id) const;

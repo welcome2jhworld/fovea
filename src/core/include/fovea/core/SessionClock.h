@@ -12,7 +12,6 @@ public:
   static constexpr const char* kBackwardsReason = "pts_backwards";
 
   void start(int64_t firstPtsNs, int64_t startedUtcMs);
-  void reset();
   bool started() const { return started_; }
   int64_t firstPtsNs() const { return firstPtsNs_; }
   int64_t startedUtcMs() const { return startedUtcMs_; }

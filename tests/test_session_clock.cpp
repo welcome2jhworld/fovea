@@ -34,19 +34,6 @@ private slots:
     QCOMPARE(c.lastPtsNs(), 2'000'000'000);
     QCOMPARE(QString(SessionClock::kBackwardsReason), QString("pts_backwards"));
   }
-
-  void resetClearsAnchor() {
-    SessionClock c;
-    c.start(500, 2000);
-    QVERIFY(c.observe(9'000'000'000));
-    c.reset();
-    QVERIFY(!c.started());
-    QCOMPARE(c.lastPtsNs(), 0);
-    QCOMPARE(c.utcForPts(500), 0);
-    QVERIFY(c.observe(10));
-    c.start(10, 3000);
-    QCOMPARE(c.utcForPts(1'000'000'010), 4000);
-  }
 };
 
 QTEST_GUILESS_MAIN(TestSessionClock)
