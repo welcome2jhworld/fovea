@@ -1,13 +1,16 @@
 #pragma once
 #include "fovea/Api.h"
 #include "fovea/core/Analytics.h"
+#include "fovea/core/Index.h"
 #include <QSqlDatabase>
 #include <QString>
 #include <QStringList>
+#include <QSet>
 #include <QVariantMap>
 #include <QVector>
 #include <functional>
 #include <optional>
+#include <utility>
 
 namespace fovea::core {
 
@@ -36,11 +39,14 @@ struct RecoveryReport {
 
 enum class SegmentDeletion { Deleted, Held, NotDeletable, Failed };
 
-// Evidence refs a deletion marked deleted, and the thumbnail files they no
-// longer reference (the caller removes them once the transaction committed).
+// Evidence refs and embedding records a deletion marked deleted, and the
+// thumbnail files they no longer reference (the caller removes them once the
+// transaction committed).
 struct MarkedEvidence {
   int refs = 0;
   QStringList thumbnails;
+  int embeddings = 0;
+  QStringList indexThumbnails;
 };
 
 struct AuditEntry {
@@ -70,6 +76,7 @@ public:
   ~Store();
   bool open(const QString& path);
   void close();
+  QString path() const { return path_; }
   bool isOpen() const;
   QString lastError() const { return lastError_; }
 
@@ -87,7 +94,7 @@ public:
   std::optional<Camera> getCamera(const QString& id);
   bool insertCamera(const Camera& c);
   bool updateCamera(const Camera& c);
-  // One transaction: the camera, its segments and its evidence refs are deleted.
+  // One transaction: the camera, its segments, evidence refs and embedding rows are deleted.
   bool softDeleteCamera(const QString& id, int64_t nowUtcMs, MarkedEvidence* marked = nullptr);
 
   bool insertSession(const StreamSession& s);
@@ -120,8 +127,9 @@ public:
   // Bytes of finalized and damaged segments without an active hold.
   int64_t reclaimableBytes(int64_t nowUtcMs);
   // One IMMEDIATE transaction: the hold check, the state change to "deleted",
-  // the audit row and the evidence refs listing the segment. The caller removes
-  // the file (and the marked thumbnails) only after Deleted.
+  // the audit row, the evidence refs listing the segment, its embedding rows
+  // and its unfinished index jobs (skipped). The caller removes the file (and
+  // the marked thumbnails) only after Deleted.
   SegmentDeletion deleteSegmentUnlessHeld(const QString& id, const QString& reason, int64_t nowUtcMs,
                                           MarkedEvidence* marked = nullptr);
   // Removes files inside evidenceDir; returns how many were removed.
@@ -200,6 +208,104 @@ public:
 
   bool insertCoverage(const CoverageRecord& c);
 
+  // Index versions (schema version 4). get, find and list skip deleted versions.
+  bool upsertIndexVersion(const IndexVersion& v);
+  std::optional<IndexVersion> getIndexVersion(const QString& hash);
+  // The newest version with that name and sample interval.
+  std::optional<IndexVersion> findIndexVersion(const QString& name, int sampleIntervalMs);
+  QVector<IndexVersion> listIndexVersions();
+  // One transaction: the version is marked deleted and its jobs and embedding rows are removed.
+  bool deleteIndexVersion(const QString& hash, int64_t nowUtcMs);
+
+  // Queues a job per finalized segment of an index-enabled camera that has
+  // none for the version yet, oldest footage first; returns how many.
+  int queueIndexJobs(const IndexVersion& v, int64_t nowUtcMs);
+  // The oldest queued job, or failed job due for a retry below maxAttempts,
+  // of a finalized segment of an index-enabled camera.
+  std::optional<IndexJob> nextIndexJob(const QString& version, int64_t nowUtcMs, int maxAttempts);
+  // One transaction: rows earlier attempts of the job appended are marked
+  // deleted, the generation increases and the job is running.
+  std::optional<IndexJob> beginIndexJob(int64_t jobId, int64_t nowUtcMs, MarkedEvidence* stale);
+  // Moves the running attempt job.generation to state (with job's attempts,
+  // next attempt, frames and compute counters); rows of an attempt that ends
+  // in any state but done are marked deleted in the same transaction. False
+  // when that attempt is no longer running.
+  bool finishIndexJob(const IndexJob& job, const QString& state, const QString& reason, int64_t nowUtcMs, MarkedEvidence* stale);
+  // Jobs a previous run left running are queued again with one attempt counted
+  // (or failed at maxAttempts), jobs of deleted segments are skipped and rows
+  // of every job that is not done are marked deleted; returns how many jobs
+  // were requeued.
+  int recoverIndexJobs(int64_t nowUtcMs, int maxAttempts, MarkedEvidence* stale);
+  std::optional<IndexJob> getIndexJob(int64_t id);
+  // Newest first; state empty means any.
+  QVector<IndexJob> listIndexJobs(const QString& version, const QString& state, int limit);
+  IndexQueueStats indexQueueStats(const QString& version);
+
+  // One transaction for an attempt that is still running on a finalized
+  // segment: rows are inserted (ids assigned), writeVectors appends the
+  // vectors and sets each record's file and offset, the rows get them and the
+  // job's frames_indexed grows. False (nothing stored) otherwise.
+  bool appendEmbeddings(const IndexJob& job, QVector<EmbeddingRecord>& records,
+                        const std::function<bool(QVector<EmbeddingRecord>&)>& writeVectors);
+  std::optional<EmbeddingRecord> getEmbeddingRecord(int64_t id);
+  // The ids among ids whose rows are not deleted.
+  QSet<int64_t> liveEmbeddingIds(const QVector<int64_t>& ids);
+  // Calls row(vectorFile, id, utcMs, vectorOffset) for every live row of the
+  // version from the cameras (all when empty) with utc_ms in [fromUtcMs,
+  // toUtcMs], in index order (camera, then time), which groups them by file.
+  // Streams: a search never holds the whole range in memory.
+  bool forEachSearchRow(const QString& version, const QStringList& cameraIds, int64_t fromUtcMs, int64_t toUtcMs,
+                        const std::function<void(const QString&, int64_t, int64_t, int64_t)>& row);
+  // The rows of these ids, id order; missing ids are left out.
+  QVector<VectorRow> embeddingRowsByIds(const QVector<int64_t>& ids);
+  // Marks rows whose vector could not be read where it should be deleted (the
+  // record id at the offset differs), so a later scan skips them; returns how
+  // many were live, -1 on failure.
+  int dropUnreadableRecords(const QVector<int64_t>& ids, MarkedEvidence* marked);
+  // Queues done jobs of finalized segments that have fewer live rows than they
+  // indexed (the startup check or a scan dropped some), so the footage is
+  // indexed again; returns how many.
+  int requeueJobsMissingRecords(int64_t nowUtcMs);
+  // Hashes of versions marked deleted, whose files may still be on disk.
+  QStringList deletedIndexVersions();
+  // Earliest start and latest end of finalized segments of the cameras (all
+  // when empty); {0, 0} when there are none.
+  std::pair<int64_t, int64_t> footageRange(const QStringList& cameraIds);
+  // Live rows of the version and an estimate of their column payload in bytes.
+  std::pair<int64_t, int64_t> embeddingRowStats(const QString& version);
+  // Expected samples over finalized segments of the cameras (all when empty)
+  // clipped to [fromUtcMs, toUtcMs], against live rows of the version there.
+  CoverageCount indexCoverage(const IndexVersion& v, const QStringList& cameraIds, int64_t fromUtcMs, int64_t toUtcMs);
+  QVector<CameraCoverage> coverageByCamera(const IndexVersion& v);
+  QVector<VectorFileUsage> vectorFileUsage();
+  // Live rows of a file as (id, offset), in offset order.
+  QVector<std::pair<int64_t, int64_t>> liveFileRecords(const QString& vectorFile);
+  // One transaction: the listed rows move from fromFile to toFile at
+  // newOffsets; every other row still on fromFile loses its vector.
+  bool moveFileRecords(const QString& fromFile, const QString& toFile, const QVector<std::pair<int64_t, int64_t>>& moved,
+                       const QVector<int64_t>& newOffsets);
+  // Rows on vectorFile whose record does not lie within fileBytes (every row
+  // when fileBytes < 0) are marked deleted and lose their vector; returns how many were live.
+  int dropRecordsPastEnd(const QString& vectorFile, int64_t fileBytes, int dims, MarkedEvidence* marked);
+  QStringList referencedVectorFiles();
+  // Removes files inside indexDir, and their directories once empty; returns how many files were removed.
+  static int removeIndexFiles(const QStringList& paths, const QString& indexDir);
+
+  bool insertSearchSession(const SearchSessionRecord& s);
+  std::optional<SearchSessionRecord> getSearchSession(const QString& id);
+
+  bool insertImport(const ImportRecord& r);
+  bool updateImport(const ImportRecord& r);
+  std::optional<ImportRecord> getImport(const QString& id);
+  // Newest first.
+  QVector<ImportRecord> listImports(int limit);
+  // Whether a segment of the camera that is not deleted overlaps [fromUtcMs, toUtcMs).
+  bool cameraHasFootage(const QString& cameraId, int64_t fromUtcMs, int64_t toUtcMs);
+  // One transaction: every segment of the session that is not deleted becomes
+  // deleted with reason (retention purges the files), with its embedding
+  // rows, index jobs and evidence refs.
+  bool deleteSessionSegments(const QString& sessionId, const QString& reason, int64_t nowUtcMs, MarkedEvidence* marked);
+
 private:
   bool migrate();
   // Runs body in a transaction; commits when it returns true, else rolls back.
@@ -207,12 +313,17 @@ private:
   // Marks refs matching the condition deleted with reason; collects their thumbnails.
   bool markEvidenceDeleted(const QString& condition, const QVariantMap& binds, const QString& reason, int64_t nowUtcMs,
                            MarkedEvidence* marked);
+  // Marks embedding rows matching the condition deleted, collects their
+  // thumbnails, and skips queued and failed jobs of deleted segments.
+  bool markEmbeddingsDeleted(const QString& condition, const QVariantMap& binds, MarkedEvidence* marked);
+  bool skipJobsOfDeletedSegments(const QString& condition, const QVariantMap& binds, int64_t nowUtcMs);
   std::optional<bool> activeHold(const QString& segmentId, int64_t nowUtcMs);
   bool adoptRecordingFile(const std::function<SegmentProbe(const QString& path)>& probe, int64_t nowUtcMs,
                           const QString& cameraId, const QString& path);
   bool exec(const QString& sql);
   QSqlDatabase db_;
   QString connectionName_;
+  QString path_;
   QString lastError_;
 };
 

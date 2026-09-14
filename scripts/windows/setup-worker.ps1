@@ -1,10 +1,13 @@
-# Creates worker\.venv and installs the worker with its torch extra. Model weights are not downloaded here.
-# Torch and torchvision come from the CUDA 12.8 wheel index when nvidia-smi lists a GPU, from the CPU
-# wheel index otherwise (or with -Cpu); the worker install that follows keeps them.
+# Creates worker\.venv and installs the worker with its torch extra, then downloads the search
+# embedding model (google/siglip2-base-patch16-224, about 1.5 GB) into the Hugging Face cache unless
+# -SkipModels is given; the detector weights download on first use. Torch and torchvision come from
+# the CUDA 12.8 wheel index when nvidia-smi lists a GPU, from the CPU wheel index otherwise (or with
+# -Cpu); the worker install that follows keeps them.
 # Uses uv when it is on PATH, else the Python launcher (py -<version>) or python with the venv module.
 param(
   [string]$PythonVersion = "3.12",
-  [switch]$Cpu
+  [switch]$Cpu,
+  [switch]$SkipModels
 )
 $ErrorActionPreference = "Stop"
 
@@ -73,3 +76,13 @@ if ($Gpu -and $TorchInfo[1] -eq "cpu") {
 $Exe = Join-Path $Venv "Scripts\fovea-worker.exe"
 if (-not (Test-Path $Exe)) { throw "fovea-worker.exe was not created in $Venv\Scripts" }
 Write-Host "fovea-worker: $Exe"
+
+if (-not $SkipModels) {
+  $Fetch = @"
+from huggingface_hub import snapshot_download
+patterns = ["*.json", "*.safetensors", "*.txt", "*.model"]
+print(snapshot_download("google/siglip2-base-patch16-224", allow_patterns=patterns))
+"@
+  Write-Host "downloading the search embedding model (resumable)"
+  Invoke-Native $VenvPython @("-c", $Fetch)
+}

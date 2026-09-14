@@ -17,7 +17,7 @@ QJsonObject Camera::toJson() const {
   return {{"id", id}, {"code", code}, {"name", name}, {"group_name", groupName}, {"kind", kind},
           {"main_url", mainUrl}, {"sub_url", subUrl}, {"transport", transport},
           {"timeout_ms", timeoutMs}, {"jitter_ms", jitterMs}, {"segment_seconds", segmentSeconds},
-          {"analytics_enabled", analyticsEnabled}, {"record_enabled", recordEnabled},
+          {"analytics_enabled", analyticsEnabled}, {"index_enabled", indexEnabled}, {"record_enabled", recordEnabled},
           {"enabled", enabled}, {"retention_days", retentionDays}, {"max_bytes", static_cast<double>(maxBytes)},
           {"created_utc_ms", static_cast<double>(createdUtcMs)},
           {"updated_utc_ms", static_cast<double>(updatedUtcMs)}};
@@ -36,6 +36,7 @@ Camera Camera::fromJson(const QJsonObject& o) {
   c.jitterMs = i32(o, "jitter_ms", 1000);
   c.segmentSeconds = i32(o, "segment_seconds", 60);
   c.analyticsEnabled = bl(o, "analytics_enabled", false);
+  c.indexEnabled = bl(o, "index_enabled", true);
   c.recordEnabled = bl(o, "record_enabled", true);
   c.enabled = bl(o, "enabled", true);
   c.retentionDays = i32(o, "retention_days", 7);

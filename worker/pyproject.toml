@@ -18,6 +18,7 @@ torch = [
   "safetensors>=0.5",
   "rfdetr==1.10.1",
   "supervision==0.30.2",
+  "qwen-vl-utils==0.0.14",
 ]
 mlx = [
   "mlx>=0.32.2",

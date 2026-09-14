@@ -21,6 +21,13 @@ set_target_properties(test_alert_logic PROPERTIES MACOSX_BUNDLE OFF)
 fovea_target_warnings(test_alert_logic)
 add_test(NAME test_alert_logic COMMAND test_alert_logic)
 
+qt_add_executable(test_search_logic test_search_logic.cpp)
+fovea_console_executable(test_search_logic)
+target_link_libraries(test_search_logic PRIVATE fovea-console Qt6::Test)
+set_target_properties(test_search_logic PROPERTIES MACOSX_BUNDLE OFF)
+fovea_target_warnings(test_search_logic)
+add_test(NAME test_search_logic COMMAND test_search_logic)
+
 qt_add_executable(test_console_flows test_console_flows.cpp)
 fovea_console_executable(test_console_flows)
 target_link_libraries(test_console_flows PRIVATE fovea-console Qt6::Test)

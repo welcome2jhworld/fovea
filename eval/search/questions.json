@@ -1,0 +1,856 @@
+{
+ "schema_version": 1,
+ "split": "final",
+ "videos": [
+  {
+   "name": "classroom",
+   "sha256": "a69bd5e39ff0e74286d13bcbfdadddd307b85decd2d9853db7518e0028785e31",
+   "duration_s": 32.8,
+   "width": 1920,
+   "height": 1080,
+   "fps": 30.0,
+   "source": "private, not redistributable",
+   "license": null,
+   "url": null
+  },
+  {
+   "name": "lot-walking",
+   "sha256": "452b11b7e0efbd019f1d9570d0c790e90416ad4ad29eec6003872d08443140ef",
+   "duration_s": 53.92,
+   "width": 768,
+   "height": 432,
+   "fps": 12.0,
+   "source": "private, not redistributable",
+   "license": null,
+   "url": null
+  },
+  {
+   "name": "lot-whitecar",
+   "sha256": "d31e0ebf194cc16e50eea784e7c3b0b1bb7976a4fb9b3fec26cb92a6704cca34",
+   "duration_s": 30.16,
+   "width": 768,
+   "height": 432,
+   "fps": 12.5,
+   "source": "private, not redistributable",
+   "license": null,
+   "url": null
+  },
+  {
+   "name": "people-walking",
+   "sha256": "822671fb20ed13ef9ead91d1f3678863b5aa078dd3b2ed45953fda39a61c979d",
+   "duration_s": 13.64,
+   "width": 1920,
+   "height": 1080,
+   "fps": 25.0,
+   "source": "supervision asset people-walking.mp4 = Pexels video 853889 'Black And White Video Of People' by Coverr",
+   "license": "Pexels License",
+   "url": "https://media.roboflow.com/supervision/video-examples/people-walking.mp4"
+  },
+  {
+   "name": "market-square",
+   "sha256": "21684157ced29570f2c33781c7bfe60ac04301a73c61e0778afd93c14bb70390",
+   "duration_s": 7.9,
+   "width": 2160,
+   "height": 3840,
+   "fps": 60.0,
+   "source": "supervision asset market-square.mp4 = Pexels video 3687560",
+   "license": "Pexels License",
+   "url": "https://media.roboflow.com/supervision/video-examples/market-square.mp4"
+  },
+  {
+   "name": "skiing",
+   "sha256": "81ffb0d3670805a82d4b8354ad6c87e9701a6f5d71757cc89fdc133f76559ab5",
+   "duration_s": 14.12,
+   "width": 1920,
+   "height": 1080,
+   "fps": 25.0,
+   "source": "supervision asset skiing.mp4 = Pexels video 4274798 by Adrien JACTA",
+   "license": "Pexels License",
+   "url": "https://media.roboflow.com/supervision/video-examples/skiing.mp4"
+  }
+ ],
+ "questions": [
+  {
+   "id": "f001",
+   "query": "교실에 학생들이 앉아 있는 장면",
+   "language": "ko",
+   "category": "scene",
+   "video_sha256": "a69bd5e39ff0e74286d13bcbfdadddd307b85decd2d9853db7518e0028785e31",
+   "ranges": [
+    {
+     "start_s": 0.0,
+     "end_s": 32.8
+    }
+   ],
+   "also_matches": [],
+   "negative": false,
+   "ambiguous": false,
+   "note": "",
+   "pair": null
+  },
+  {
+   "id": "f002",
+   "query": "위에서 내려다본 주차장",
+   "language": "ko",
+   "category": "scene",
+   "video_sha256": "452b11b7e0efbd019f1d9570d0c790e90416ad4ad29eec6003872d08443140ef",
+   "ranges": [
+    {
+     "start_s": 0.0,
+     "end_s": 53.92
+    }
+   ],
+   "also_matches": [
+    {
+     "video_sha256": "d31e0ebf194cc16e50eea784e7c3b0b1bb7976a4fb9b3fec26cb92a6704cca34",
+     "ranges": [
+      {
+       "start_s": 0.0,
+       "end_s": 30.16
+      }
+     ]
+    }
+   ],
+   "negative": false,
+   "ambiguous": false,
+   "note": "lot-whitecar shows plain asphalt with parking lines only at the top edge; counted as a parking lot.",
+   "pair": null
+  },
+  {
+   "id": "f003",
+   "query": "스키장 슬로프",
+   "language": "ko",
+   "category": "scene",
+   "video_sha256": "81ffb0d3670805a82d4b8354ad6c87e9701a6f5d71757cc89fdc133f76559ab5",
+   "ranges": [
+    {
+     "start_s": 0.0,
+     "end_s": 14.12
+    }
+   ],
+   "also_matches": [],
+   "negative": false,
+   "ambiguous": false,
+   "note": "",
+   "pair": null
+  },
+  {
+   "id": "f004",
+   "query": "a town square with a fountain in the middle",
+   "language": "en",
+   "category": "scene",
+   "video_sha256": "21684157ced29570f2c33781c7bfe60ac04301a73c61e0778afd93c14bb70390",
+   "ranges": [
+    {
+     "start_s": 0.0,
+     "end_s": 7.9
+    }
+   ],
+   "also_matches": [],
+   "negative": false,
+   "ambiguous": false,
+   "note": "",
+   "pair": null
+  },
+  {
+   "id": "f005",
+   "query": "흑백으로 촬영된 영상",
+   "language": "ko",
+   "category": "scene",
+   "video_sha256": "822671fb20ed13ef9ead91d1f3678863b5aa078dd3b2ed45953fda39a61c979d",
+   "ranges": [
+    {
+     "start_s": 0.0,
+     "end_s": 13.64
+    }
+   ],
+   "also_matches": [],
+   "negative": false,
+   "ambiguous": false,
+   "note": "",
+   "pair": null
+  },
+  {
+   "id": "f006",
+   "query": "a car",
+   "language": "en",
+   "category": "presence",
+   "video_sha256": "d31e0ebf194cc16e50eea784e7c3b0b1bb7976a4fb9b3fec26cb92a6704cca34",
+   "ranges": [
+    {
+     "start_s": 4.5,
+     "end_s": 8.5
+    },
+    {
+     "start_s": 14.5,
+     "end_s": 19.0
+    },
+    {
+     "start_s": 25.0,
+     "end_s": 28.0
+    }
+   ],
+   "also_matches": [
+    {
+     "video_sha256": "452b11b7e0efbd019f1d9570d0c790e90416ad4ad29eec6003872d08443140ef",
+     "ranges": [
+      {
+       "start_s": 14.0,
+       "end_s": 19.5
+      },
+      {
+       "start_s": 43.5,
+       "end_s": 49.5
+      }
+     ]
+    }
+   ],
+   "negative": false,
+   "ambiguous": false,
+   "note": "",
+   "pair": null
+  },
+  {
+   "id": "f007",
+   "query": "자전거",
+   "language": "ko",
+   "category": "presence",
+   "video_sha256": "452b11b7e0efbd019f1d9570d0c790e90416ad4ad29eec6003872d08443140ef",
+   "ranges": [
+    {
+     "start_s": 24.5,
+     "end_s": 29.5
+    },
+    {
+     "start_s": 44.5,
+     "end_s": 50.0
+    }
+   ],
+   "also_matches": [
+    {
+     "video_sha256": "21684157ced29570f2c33781c7bfe60ac04301a73c61e0778afd93c14bb70390",
+     "ranges": [
+      {
+       "start_s": 0.0,
+       "end_s": 7.9
+      }
+     ]
+    }
+   ],
+   "negative": false,
+   "ambiguous": false,
+   "note": "In market-square a bicycle stands in the middle of the crowd and bicycles are parked at the top-left edge for the whole clip; both are small.",
+   "pair": null
+  },
+  {
+   "id": "f008",
+   "query": "a flip chart standing next to a window",
+   "language": "en",
+   "category": "presence",
+   "video_sha256": "a69bd5e39ff0e74286d13bcbfdadddd307b85decd2d9853db7518e0028785e31",
+   "ranges": [
+    {
+     "start_s": 0.0,
+     "end_s": 32.8
+    }
+   ],
+   "also_matches": [],
+   "negative": false,
+   "ambiguous": false,
+   "note": "",
+   "pair": null
+  },
+  {
+   "id": "f009",
+   "query": "스키 리프트",
+   "language": "ko",
+   "category": "presence",
+   "video_sha256": "81ffb0d3670805a82d4b8354ad6c87e9701a6f5d71757cc89fdc133f76559ab5",
+   "ranges": [
+    {
+     "start_s": 11.0,
+     "end_s": 14.12
+    }
+   ],
+   "also_matches": [],
+   "negative": false,
+   "ambiguous": true,
+   "note": "Lift towers are visible from about 6 s; the cable with chairs is clearly visible only from about 11 s.",
+   "pair": null
+  },
+  {
+   "id": "f010",
+   "query": "여러 사람이 걸어가는 장면",
+   "language": "ko",
+   "category": "count",
+   "video_sha256": "822671fb20ed13ef9ead91d1f3678863b5aa078dd3b2ed45953fda39a61c979d",
+   "ranges": [
+    {
+     "start_s": 0.0,
+     "end_s": 13.64
+    }
+   ],
+   "also_matches": [
+    {
+     "video_sha256": "21684157ced29570f2c33781c7bfe60ac04301a73c61e0778afd93c14bb70390",
+     "ranges": [
+      {
+       "start_s": 0.0,
+       "end_s": 7.9
+      }
+     ]
+    }
+   ],
+   "negative": false,
+   "ambiguous": false,
+   "note": "",
+   "pair": null
+  },
+  {
+   "id": "f011",
+   "query": "four people sitting in a room",
+   "language": "en",
+   "category": "count",
+   "video_sha256": "a69bd5e39ff0e74286d13bcbfdadddd307b85decd2d9853db7518e0028785e31",
+   "ranges": [
+    {
+     "start_s": 0.0,
+     "end_s": 3.0
+    },
+    {
+     "start_s": 16.5,
+     "end_s": 20.5
+    },
+    {
+     "start_s": 27.5,
+     "end_s": 32.8
+    }
+   ],
+   "also_matches": [],
+   "negative": false,
+   "ambiguous": false,
+   "note": "Outside these ranges one of the four people is standing.",
+   "pair": null
+  },
+  {
+   "id": "f012",
+   "query": "차 두 대가 서로 반대 방향으로 지나가는 장면",
+   "language": "ko",
+   "category": "count",
+   "video_sha256": "d31e0ebf194cc16e50eea784e7c3b0b1bb7976a4fb9b3fec26cb92a6704cca34",
+   "ranges": [
+    {
+     "start_s": 15.0,
+     "end_s": 18.5
+    }
+   ],
+   "also_matches": [],
+   "negative": false,
+   "ambiguous": false,
+   "note": "A silver car drives down while a red car drives up.",
+   "pair": null
+  },
+  {
+   "id": "f013",
+   "query": "텅 빈 주차장",
+   "language": "ko",
+   "category": "count",
+   "video_sha256": "452b11b7e0efbd019f1d9570d0c790e90416ad4ad29eec6003872d08443140ef",
+   "ranges": [
+    {
+     "start_s": 0.0,
+     "end_s": 1.0
+    },
+    {
+     "start_s": 7.5,
+     "end_s": 14.0
+    },
+    {
+     "start_s": 19.5,
+     "end_s": 24.5
+    },
+    {
+     "start_s": 29.5,
+     "end_s": 40.0
+    },
+    {
+     "start_s": 50.0,
+     "end_s": 53.92
+    }
+   ],
+   "also_matches": [
+    {
+     "video_sha256": "d31e0ebf194cc16e50eea784e7c3b0b1bb7976a4fb9b3fec26cb92a6704cca34",
+     "ranges": [
+      {
+       "start_s": 0.0,
+       "end_s": 4.5
+      },
+      {
+       "start_s": 8.5,
+       "end_s": 14.5
+      },
+      {
+       "start_s": 19.0,
+       "end_s": 25.0
+      },
+      {
+       "start_s": 28.0,
+       "end_s": 30.16
+      }
+     ]
+    }
+   ],
+   "negative": false,
+   "ambiguous": false,
+   "note": "Includes the first second of lot-walking, before the walker enters at about 1.0-1.2 s. Ignores a few-pixel orange object at the bottom-left corner of lot-walking (about 9-12.5 s) and a dark sliver at the top edge of lot-whitecar.",
+   "pair": null
+  },
+  {
+   "id": "f014",
+   "query": "흰색 자동차",
+   "language": "ko",
+   "category": "attribute",
+   "video_sha256": "d31e0ebf194cc16e50eea784e7c3b0b1bb7976a4fb9b3fec26cb92a6704cca34",
+   "ranges": [
+    {
+     "start_s": 4.5,
+     "end_s": 8.5
+    },
+    {
+     "start_s": 25.0,
+     "end_s": 28.0
+    }
+   ],
+   "also_matches": [
+    {
+     "video_sha256": "452b11b7e0efbd019f1d9570d0c790e90416ad4ad29eec6003872d08443140ef",
+     "ranges": [
+      {
+       "start_s": 14.0,
+       "end_s": 19.5
+      }
+     ]
+    }
+   ],
+   "negative": false,
+   "ambiguous": false,
+   "note": "",
+   "pair": null
+  },
+  {
+   "id": "f015",
+   "query": "a red car",
+   "language": "en",
+   "category": "attribute",
+   "video_sha256": "d31e0ebf194cc16e50eea784e7c3b0b1bb7976a4fb9b3fec26cb92a6704cca34",
+   "ranges": [
+    {
+     "start_s": 15.0,
+     "end_s": 19.0
+    }
+   ],
+   "also_matches": [],
+   "negative": false,
+   "ambiguous": false,
+   "note": "",
+   "pair": null
+  },
+  {
+   "id": "f016",
+   "query": "a person in dark clothes walking across a parking lot",
+   "language": "en",
+   "category": "attribute",
+   "video_sha256": "452b11b7e0efbd019f1d9570d0c790e90416ad4ad29eec6003872d08443140ef",
+   "ranges": [
+    {
+     "start_s": 1.0,
+     "end_s": 7.5
+    }
+   ],
+   "also_matches": [],
+   "negative": false,
+   "ambiguous": false,
+   "note": "The cyclists also wear dark tops but ride; the walker at 40-46.5 s wears a light grey top.",
+   "pair": null
+  },
+  {
+   "id": "f017",
+   "query": "노란 재킷을 입은 사람",
+   "language": "ko",
+   "category": "attribute",
+   "video_sha256": "21684157ced29570f2c33781c7bfe60ac04301a73c61e0778afd93c14bb70390",
+   "ranges": [
+    {
+     "start_s": 0.0,
+     "end_s": 7.9
+    }
+   ],
+   "also_matches": [],
+   "negative": false,
+   "ambiguous": false,
+   "note": "",
+   "pair": null
+  },
+  {
+   "id": "f018",
+   "query": "a skier wearing a turquoise jacket and a red backpack",
+   "language": "en",
+   "category": "attribute",
+   "video_sha256": "81ffb0d3670805a82d4b8354ad6c87e9701a6f5d71757cc89fdc133f76559ab5",
+   "ranges": [
+    {
+     "start_s": 0.0,
+     "end_s": 14.12
+    }
+   ],
+   "also_matches": [],
+   "negative": false,
+   "ambiguous": false,
+   "note": "",
+   "pair": null
+  },
+  {
+   "id": "f019",
+   "query": "은색 자동차",
+   "language": "ko",
+   "category": "attribute",
+   "video_sha256": "d31e0ebf194cc16e50eea784e7c3b0b1bb7976a4fb9b3fec26cb92a6704cca34",
+   "ranges": [
+    {
+     "start_s": 14.5,
+     "end_s": 18.5
+    }
+   ],
+   "also_matches": [
+    {
+     "video_sha256": "452b11b7e0efbd019f1d9570d0c790e90416ad4ad29eec6003872d08443140ef",
+     "ranges": [
+      {
+       "start_s": 43.5,
+       "end_s": 49.5
+      }
+     ]
+    }
+   ],
+   "negative": false,
+   "ambiguous": true,
+   "note": "The lot-walking car at 43.5-49.5 s is a pale blue-green that can read as silver.",
+   "pair": null
+  },
+  {
+   "id": "f020",
+   "query": "a white SUV",
+   "language": "en",
+   "category": "attribute",
+   "video_sha256": "452b11b7e0efbd019f1d9570d0c790e90416ad4ad29eec6003872d08443140ef",
+   "ranges": [
+    {
+     "start_s": 14.0,
+     "end_s": 19.5
+    }
+   ],
+   "also_matches": [],
+   "negative": false,
+   "ambiguous": false,
+   "note": "The white cars in lot-whitecar are a hatchback and a low sedan, not SUVs.",
+   "pair": null
+  },
+  {
+   "id": "f021",
+   "query": "a student raising a hand",
+   "language": "en",
+   "category": "action",
+   "video_sha256": "a69bd5e39ff0e74286d13bcbfdadddd307b85decd2d9853db7518e0028785e31",
+   "ranges": [
+    {
+     "start_s": 17.5,
+     "end_s": 20.0
+    }
+   ],
+   "also_matches": [],
+   "negative": false,
+   "ambiguous": false,
+   "note": "The hand is down at 17.25 s and up at 17.5 s on exact frames.",
+   "pair": null
+  },
+  {
+   "id": "f022",
+   "query": "스키를 타고 내려가는 사람",
+   "language": "ko",
+   "category": "action",
+   "video_sha256": "81ffb0d3670805a82d4b8354ad6c87e9701a6f5d71757cc89fdc133f76559ab5",
+   "ranges": [
+    {
+     "start_s": 0.0,
+     "end_s": 14.12
+    }
+   ],
+   "also_matches": [],
+   "negative": false,
+   "ambiguous": false,
+   "note": "",
+   "pair": null
+  },
+  {
+   "id": "f023",
+   "query": "someone riding a bicycle across a parking lot",
+   "language": "en",
+   "category": "action",
+   "video_sha256": "452b11b7e0efbd019f1d9570d0c790e90416ad4ad29eec6003872d08443140ef",
+   "ranges": [
+    {
+     "start_s": 24.5,
+     "end_s": 29.5
+    },
+    {
+     "start_s": 44.5,
+     "end_s": 50.0
+    }
+   ],
+   "also_matches": [],
+   "negative": false,
+   "ambiguous": false,
+   "note": "",
+   "pair": null
+  },
+  {
+   "id": "f024",
+   "query": "창가 앞자리에 앉아 있던 남자가 자리에서 일어나는 장면",
+   "language": "ko",
+   "category": "action",
+   "video_sha256": "a69bd5e39ff0e74286d13bcbfdadddd307b85decd2d9853db7518e0028785e31",
+   "ranges": [
+    {
+     "start_s": 3.0,
+     "end_s": 5.0
+    }
+   ],
+   "also_matches": [],
+   "negative": false,
+   "ambiguous": false,
+   "note": "Ordering-sensitive pair with f025: single frames look alike, so embedding-only search is not expected to separate the two.",
+   "pair": "classroom-front-stand-sit"
+  },
+  {
+   "id": "f025",
+   "query": "the man by the window sits back down at his desk",
+   "language": "en",
+   "category": "action",
+   "video_sha256": "a69bd5e39ff0e74286d13bcbfdadddd307b85decd2d9853db7518e0028785e31",
+   "ranges": [
+    {
+     "start_s": 15.0,
+     "end_s": 16.5
+    }
+   ],
+   "also_matches": [],
+   "negative": false,
+   "ambiguous": false,
+   "note": "Ordering-sensitive pair with f024: single frames look alike, so embedding-only search is not expected to separate the two.",
+   "pair": "classroom-front-stand-sit"
+  },
+  {
+   "id": "f026",
+   "query": "a car entering the parking lot",
+   "language": "en",
+   "category": "action",
+   "video_sha256": "d31e0ebf194cc16e50eea784e7c3b0b1bb7976a4fb9b3fec26cb92a6704cca34",
+   "ranges": [
+    {
+     "start_s": 4.5,
+     "end_s": 6.0
+    },
+    {
+     "start_s": 14.5,
+     "end_s": 16.5
+    },
+    {
+     "start_s": 25.0,
+     "end_s": 26.5
+    }
+   ],
+   "also_matches": [
+    {
+     "video_sha256": "452b11b7e0efbd019f1d9570d0c790e90416ad4ad29eec6003872d08443140ef",
+     "ranges": [
+      {
+       "start_s": 14.0,
+       "end_s": 15.5
+      },
+      {
+       "start_s": 43.5,
+       "end_s": 45.0
+      }
+     ]
+    }
+   ],
+   "negative": false,
+   "ambiguous": true,
+   "note": "Top-down footage: each car crosses the frame in about 4 s, so entering and leaving are the first and last ~1.5 s of each crossing, and whether a car arrives at or leaves the lot is not visible. Ordering-sensitive pair with f027: single frames look alike, so embedding-only search is not expected to separate the two.",
+   "pair": "car-enter-leave"
+  },
+  {
+   "id": "f027",
+   "query": "차가 주차장을 빠져나가는 장면",
+   "language": "ko",
+   "category": "action",
+   "video_sha256": "d31e0ebf194cc16e50eea784e7c3b0b1bb7976a4fb9b3fec26cb92a6704cca34",
+   "ranges": [
+    {
+     "start_s": 7.0,
+     "end_s": 8.5
+    },
+    {
+     "start_s": 17.5,
+     "end_s": 19.0
+    },
+    {
+     "start_s": 26.5,
+     "end_s": 28.0
+    }
+   ],
+   "also_matches": [
+    {
+     "video_sha256": "452b11b7e0efbd019f1d9570d0c790e90416ad4ad29eec6003872d08443140ef",
+     "ranges": [
+      {
+       "start_s": 18.0,
+       "end_s": 19.5
+      },
+      {
+       "start_s": 48.0,
+       "end_s": 49.5
+      }
+     ]
+    }
+   ],
+   "negative": false,
+   "ambiguous": true,
+   "note": "Top-down footage: each car crosses the frame in about 4 s, so entering and leaving are the first and last ~1.5 s of each crossing, and whether a car arrives at or leaves the lot is not visible. Ordering-sensitive pair with f026: single frames look alike, so embedding-only search is not expected to separate the two.",
+   "pair": "car-enter-leave"
+  },
+  {
+   "id": "f028",
+   "query": "교실 앞에 서 있는 남자",
+   "language": "ko",
+   "category": "action",
+   "video_sha256": "a69bd5e39ff0e74286d13bcbfdadddd307b85decd2d9853db7518e0028785e31",
+   "ranges": [
+    {
+     "start_s": 3.5,
+     "end_s": 15.5
+    }
+   ],
+   "also_matches": [],
+   "negative": false,
+   "ambiguous": false,
+   "note": "",
+   "pair": null
+  },
+  {
+   "id": "f029",
+   "query": "소방차",
+   "language": "ko",
+   "category": "negative",
+   "video_sha256": null,
+   "ranges": [],
+   "also_matches": [],
+   "negative": true,
+   "ambiguous": false,
+   "note": "",
+   "pair": null
+  },
+  {
+   "id": "f030",
+   "query": "a dog running on the grass",
+   "language": "en",
+   "category": "negative",
+   "video_sha256": null,
+   "ranges": [],
+   "also_matches": [],
+   "negative": true,
+   "ambiguous": false,
+   "note": "",
+   "pair": null
+  },
+  {
+   "id": "f031",
+   "query": "눈이 내리는 거리",
+   "language": "ko",
+   "category": "negative",
+   "video_sha256": null,
+   "ranges": [],
+   "also_matches": [],
+   "negative": true,
+   "ambiguous": false,
+   "note": "Hard negative: skiing has snow on the ground but no falling snow and no street.",
+   "pair": null
+  },
+  {
+   "id": "f032",
+   "query": "a bus stopped at a bus stop",
+   "language": "en",
+   "category": "negative",
+   "video_sha256": null,
+   "ranges": [],
+   "also_matches": [],
+   "negative": true,
+   "ambiguous": false,
+   "note": "",
+   "pair": null
+  },
+  {
+   "id": "f033",
+   "query": "마트 진열대 사이 통로",
+   "language": "ko",
+   "category": "negative",
+   "video_sha256": null,
+   "ranges": [],
+   "also_matches": [],
+   "negative": true,
+   "ambiguous": false,
+   "note": "No store footage in the corpus (grocery-store.mp4 was not used).",
+   "pair": null
+  },
+  {
+   "id": "f034",
+   "query": "people waiting on a subway platform",
+   "language": "en",
+   "category": "negative",
+   "video_sha256": null,
+   "ranges": [],
+   "also_matches": [],
+   "negative": true,
+   "ambiguous": false,
+   "note": "Hard negative: people-walking shows a crowd crossing an indoor concourse, but no platform, track or train. No subway footage in the corpus (subway.mp4 was not used).",
+   "pair": null
+  },
+  {
+   "id": "f035",
+   "query": "밤에 촬영된 도로",
+   "language": "ko",
+   "category": "negative",
+   "video_sha256": null,
+   "ranges": [],
+   "also_matches": [],
+   "negative": true,
+   "ambiguous": false,
+   "note": "All footage is daytime.",
+   "pair": null
+  },
+  {
+   "id": "f036",
+   "query": "a person lying on the floor",
+   "language": "en",
+   "category": "negative",
+   "video_sha256": null,
+   "ranges": [],
+   "also_matches": [],
+   "negative": true,
+   "ambiguous": false,
+   "note": "",
+   "pair": null
+  }
+ ]
+}

@@ -10,14 +10,24 @@ engine can compare them with zone polygons without knowing the pixel size.
 A detect_frames job may carry threshold (the lowest confidence reported, and
 the lowest that starts a track) and max_gap_ns (the longest pts gap the
 camera's rules bridge; the tracker keeps its ids across gaps up to it).
+
+Embedding jobs (kinds "embed_frames" and "embed_text") name an index version
+(index_version_name), carry up to EMBED_MAX_FRAMES frames or up to
+EMBED_MAX_TEXTS texts, and the sample_interval_ms that becomes part of the
+index version descriptor (default 1000). Their results are
+embedding.EmbedResult. Any job may carry priority "query" or "index" (default
+"query" for embed_text, "index" otherwise): a lane starts waiting query jobs
+before waiting index jobs.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass, field, asdict
 from typing import Any
 
+from .embedding import (DEFAULT_SAMPLE_INTERVAL_MS, EMBED_JOB_KINDS, EMBED_MAX_FRAMES, EMBED_MAX_TEXT_CHARS,
+                        EMBED_MAX_TEXTS, EMBED_PRIORITIES, INDEX_VERSIONS, PRIORITY_INDEX, default_priority)
 
-JOB_KINDS = ("vlm_clip", "embed_frames", "detect_frames", "ping")
+JOB_KINDS = ("vlm_clip", "embed_frames", "embed_text", "detect_frames", "ping")
 FRAME_JOB_KINDS = ("vlm_clip", "embed_frames", "detect_frames")
 RESULT_STATUSES = ("ok", "partial", "error", "unparsed", "dry_run")
 DETECT_TARGET_CLASSES = ("person", "car", "truck", "bus", "motorcycle", "bicycle")
@@ -96,6 +106,42 @@ def _target_classes(value: Any) -> list[str]:
     return list(value)
 
 
+def _texts(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if not isinstance(value, list) or not all(isinstance(t, str) and t.strip() for t in value):
+        raise ValueError(f"texts must be a list of non-empty strings, got {value!r}")
+    too_long = [len(t) for t in value if len(t) > EMBED_MAX_TEXT_CHARS]
+    if too_long:
+        raise ValueError(f"texts longer than {EMBED_MAX_TEXT_CHARS} characters: {too_long}")
+    return list(value)
+
+
+def _priority(kind: str, value: Any) -> str:
+    if value is None:
+        return default_priority(kind)
+    if value not in EMBED_PRIORITIES:
+        raise ValueError(f"priority must be one of {EMBED_PRIORITIES}, got {value!r}")
+    return value
+
+
+def _validate_embed_job(kind: str, frames: list[FrameRef], texts: list[str], index_version_name: Any) -> None:
+    if index_version_name not in INDEX_VERSIONS:
+        raise ValueError(f"unknown index_version_name {index_version_name!r}; expected one of {sorted(INDEX_VERSIONS)}")
+    if kind == "embed_frames":
+        if texts:
+            raise ValueError("embed_frames job carries texts")
+        if len(frames) > EMBED_MAX_FRAMES:
+            raise ValueError(f"embed_frames job has {len(frames)} frames, at most {EMBED_MAX_FRAMES}")
+        if not all(f.path for f in frames):
+            raise ValueError("embed_frames frame without path")
+    else:
+        if frames:
+            raise ValueError("embed_text job carries frames")
+        if not texts or len(texts) > EMBED_MAX_TEXTS:
+            raise ValueError(f"embed_text job has {len(texts)} texts, expected 1..{EMBED_MAX_TEXTS}")
+
+
 def sample_frames(frames: list[FrameRef], limit: int) -> list[FrameRef]:
     """At most limit frames spread evenly over the list, first and last included."""
     if len(frames) <= limit:
@@ -123,6 +169,10 @@ class Job:
     threshold: float = DETECT_DEFAULT_THRESHOLD
     target_classes: list[str] = field(default_factory=lambda: list(DETECT_TARGET_CLASSES))
     max_gap_ns: int = 0
+    index_version_name: str = ""
+    texts: list[str] = field(default_factory=list)
+    sample_interval_ms: int = DEFAULT_SAMPLE_INTERVAL_MS
+    priority: str = PRIORITY_INDEX
     # Worker-side receive time on fovea_worker.clock.mono_ns(); 0 when the job did not come through the server.
     accepted_mono_ns: int = 0
 
@@ -148,6 +198,14 @@ class Job:
         session_id = str(d.get("session_id", ""))
         if clip is not None and clip.session_id and session_id and clip.session_id != session_id:
             raise ValueError(f"clip.session_id {clip.session_id!r} differs from session_id {session_id!r}")
+        texts = _texts(d.get("texts"))
+        priority = _priority(kind, d.get("priority"))
+        sample_interval_ms = _positive_int("sample_interval_ms",
+                                           d.get("sample_interval_ms", DEFAULT_SAMPLE_INTERVAL_MS))
+        if kind in EMBED_JOB_KINDS:
+            _validate_embed_job(kind, frames, texts, d.get("index_version_name"))
+        elif texts:
+            raise ValueError(f"{kind} job carries texts")
         if kind == "detect_frames":
             if not camera_id or not session_id:
                 raise ValueError("detect_frames requires camera_id and session_id")
@@ -170,6 +228,10 @@ class Job:
             threshold=_threshold(d.get("threshold")),
             target_classes=_target_classes(d.get("target_classes")),
             max_gap_ns=_max_gap_ns(d.get("max_gap_ns")),
+            index_version_name=str(d.get("index_version_name") or ""),
+            texts=texts,
+            sample_interval_ms=sample_interval_ms,
+            priority=priority,
         )
 
 

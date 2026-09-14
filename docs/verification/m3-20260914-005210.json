@@ -1,0 +1,238 @@
+{
+ "platform": "darwin",
+ "machine": "arm64",
+ "cpu_count": 10,
+ "media": [
+  {
+   "name": "sample3-540p25.mp4",
+   "codec": "h264",
+   "width": 960,
+   "height": 540,
+   "fps": 25.0,
+   "transcoded": false
+  },
+  {
+   "name": "lot-walking.mp4",
+   "codec": "h264",
+   "width": 768,
+   "height": 432,
+   "fps": 12.0,
+   "transcoded": false
+  }
+ ],
+ "loadavg_start": [
+  1.92,
+  1.86,
+  2.13
+ ],
+ "worker_start": {
+  "core_start_to_known_results_s": 14.5,
+  "source": "env",
+  "detector": "rf-detr-nano",
+  "device": "mps",
+  "detector_load_ms": 9795
+ },
+ "zone_sampling": {
+  "frame_size": [
+   960,
+   540
+  ],
+  "positive_anchor_hits": 24,
+  "negative_anchor_hits": 0,
+  "seconds": 6
+ },
+ "scenario1_dwell": {
+  "event_id": "bcd6d31a-6ca2-483c-8c2b-603081df4d64",
+  "opened_after_first_known_detection_ms": 10080,
+  "pending_rows_before_trigger": 1,
+  "dwell_at_trigger_ms": 10080,
+  "trigger_frame_receive_to_event_row_ms": 149,
+  "dwell_overshoot_ms": 80,
+  "condition_satisfied_to_event_row_ms": 229,
+  "trigger_frame_utc_to_delivery_row_utc_ms": 50,
+  "title": "Person in Seated desks for 10 s",
+  "detail": "2 persons in the zone (tracks 620ab7.4-2, 620ab7.4-3), longest dwell 10.1 s",
+  "events_60s_after_trigger": 1
+ },
+ "scenario4_revision": {
+  "revision": 2,
+  "events": 1,
+  "open_event_id": "bcd6d31a-6ca2-483c-8c2b-603081df4d64",
+  "condition": "active"
+ },
+ "scenario6_evidence": {
+  "evidence_id": "7eed48fb-4fbf-483e-93af-74507f60ea14",
+  "window_ms": 20000,
+  "segments": 3,
+  "available_s_after_trigger": 27.7,
+  "waited_s": 22.7,
+  "thumbnail_bytes": 160937,
+  "thumbnail_jpeg": true,
+  "playback_segment_start_utc_ms": 1789347146928,
+  "playback_frames_in_3s": 76,
+  "holds": [
+   3,
+   0
+  ]
+ },
+ "scenario5_source_stop": {
+  "old_session": "9debcbec-b6ba-45db-9072-c16825066ff3",
+  "new_session": "370e4373-299f-4429-bcf5-edfd89e03b67",
+  "generation_before": 4,
+  "generation_after": 5,
+  "cleared_note": "observation gap",
+  "cleared_after_stop_ms": 15026,
+  "suppressed_rows": 1,
+  "first_suppressed_after_clear_ms": 10440,
+  "second_event_after_clear_ms": 20520,
+  "receive_gaps": 1
+ },
+ "scenario3_worker_kill": {
+  "killed_pid": 14487,
+  "pending_before_kill_s": 5,
+  "restarts": 1,
+  "worker_ready_s_after_kill": 12.1,
+  "new_pid": 14529,
+  "unknown_rows_during_outage": 1,
+  "unknown_notes": [
+   "worker_failed"
+  ],
+  "dwell_restart_after_kill_ms": 11822,
+  "events_before_resume": 0,
+  "event_after_resume_ms": 22920,
+  "rule_created_to_event_ms": 40256,
+  "seated_event_condition": [
+   "active",
+   "active"
+  ],
+  "seated_events": [
+   2,
+   2
+  ],
+  "restarted_worker_open_recordings": 0
+ },
+ "measurements": {
+  "steady_window_s": 70.6,
+  "steady_detect_fps": 2.01,
+  "steady_unknown_ratio": 0.0,
+  "run_unknown_ratio": 0.1457,
+  "run_frames": {
+   "frames_sent": 302,
+   "frames_known": 258,
+   "frames_unknown": 44,
+   "skips": 6
+  },
+  "achieved_fps_last_10s": 2,
+  "core_turnaround_ms": {
+   "p50": 103.3,
+   "p95": 126.3,
+   "samples": 200
+  },
+  "core_request_ms": {
+   "p50": 44.9,
+   "p95": 70.5,
+   "samples": 200
+  },
+  "worker_detector_turnaround_ms": {
+   "jobs": 82,
+   "p50": 59,
+   "p95": 69
+  },
+  "negative_zone": {
+   "events": 0,
+   "camera_hours": 0.0411,
+   "events_per_camera_hour": 0.0
+  },
+  "coverage_rows": {
+   "rows": 2,
+   "sent": 180,
+   "known": 159,
+   "unknown": 21
+  },
+  "second_camera": {
+   "achieved_fps": 2,
+   "frames_sent": 331,
+   "frames_known": 286,
+   "frames_unknown": 45,
+   "unknown_ratio": 0.13595166163141995,
+   "turnaround_ms": {
+    "p50": 79.9,
+    "p95": 85.5,
+    "samples": 200
+   },
+   "skips": 6
+  }
+ },
+ "scenario7_restart": {
+  "operator_state": "acknowledged",
+  "review": {
+   "event_id": "bcd6d31a-6ca2-483c-8c2b-603081df4d64",
+   "id": "6610bf46-b2a8-4d78-bd4b-9f43dac862e6",
+   "label": "confirmed",
+   "note": "seated people",
+   "operator": "verify_m3",
+   "utc_ms": 1789347152626
+  },
+  "deliveries": [
+   [
+    "console",
+    "delivered"
+   ],
+   [
+    "sound",
+    "delivered"
+   ]
+  ],
+  "rule_revisions": {
+   "40538d14": 2,
+   "54db3e0e": 1,
+   "5730776f": 1
+  },
+  "open_before_restart": 2,
+  "cleared_on_startup": 2,
+  "worker_alive_after_core_kill": false,
+  "audit": [
+   [
+    "event.open",
+    "rules"
+   ],
+   [
+    "event.acknowledge",
+    "verify_m3"
+   ],
+   [
+    "event.review",
+    "verify_m3"
+   ]
+  ],
+  "worker_after_clean_shutdown": {
+   "info_file": false,
+   "alive": false
+  }
+ },
+ "scenario8_analytics_toggle": {
+  "analyzing_while_off": false,
+  "detections_status_while_off": 404,
+  "off_s": 8,
+  "transitions_after_enable": [
+   "became_pending"
+  ],
+  "stale_rows_after_enable": 0
+ },
+ "loadavg_end": [
+  2.12,
+  1.91,
+  2.08
+ ],
+ "ids": {
+  "zone_positive": "8f383e8e",
+  "zone_negative": "f2174112",
+  "rule_positive": "40538d14",
+  "rule_negative": "54db3e0e",
+  "event1": "bcd6d31a",
+  "event2": "a68b2342",
+  "rule_worker_kill": "5730776f"
+ },
+ "failures": [],
+ "result": "PASS"
+}

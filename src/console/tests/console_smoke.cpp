@@ -1,8 +1,10 @@
 // Starts console-stub-core, runs the console headless with FOVEA_SCREENSHOT,
 // and checks that the wall shows the stub's moving pattern rather than the
 // placeholder, that the M3 views render stub data (detection boxes, alert
-// table, evidence playback, zone editor over a live frame) and that the live
-// alert reached the console and was confirmed. Environment problems (no
+// table, evidence playback, zone editor over a live frame), that the live
+// alert reached the console and was confirmed, and that the Search tab draws
+// its skeleton, results with a playing clip, empty and error states from the
+// stub's fixture queries. Environment problems (no
 // platform plugin, console cannot start) skip instead of failing unless
 // FOVEA_SMOKE_STRICT=1.
 #include <QDir>
@@ -41,10 +43,9 @@ int brightPixels(const QImage& img, const Region& r) {
   return count;
 }
 
-// Pixels within 24 per channel of a colour: #E0603C marks detection boxes and label tabs,
+// Pixels within `tolerance` per channel of a colour: #E0603C marks detection boxes and label tabs,
 // the stub playback pattern's (120,160,255) tells a playing clip from a still thumbnail.
-int colourPixels(const QImage& img, const Region& r, QRgb colour) {
-  constexpr int kTolerance = 24;
+int colourPixels(const QImage& img, const Region& r, QRgb colour, int tolerance = 24) {
   int count = 0;
   const int x0 = static_cast<int>(img.width() * r.x0), x1 = static_cast<int>(img.width() * r.x1);
   const int y0 = static_cast<int>(img.height() * r.y0), y1 = static_cast<int>(img.height() * r.y1);
@@ -52,8 +53,8 @@ int colourPixels(const QImage& img, const Region& r, QRgb colour) {
     const QRgb* line = reinterpret_cast<const QRgb*>(img.constScanLine(y));
     for (int x = x0; x < x1; ++x) {
       const QRgb px = line[x];
-      if (std::abs(qRed(px) - qRed(colour)) < kTolerance && std::abs(qGreen(px) - qGreen(colour)) < kTolerance &&
-          std::abs(qBlue(px) - qBlue(colour)) < kTolerance)
+      if (std::abs(qRed(px) - qRed(colour)) < tolerance && std::abs(qGreen(px) - qGreen(colour)) < tolerance &&
+          std::abs(qBlue(px) - qBlue(colour)) < tolerance)
         ++count;
     }
   }
@@ -62,6 +63,11 @@ int colourPixels(const QImage& img, const Region& r, QRgb colour) {
 
 const QRgb kCritical = qRgb(224, 96, 60);
 const QRgb kStubPlayback = qRgb(120, 160, 255);
+const QRgb kWarning = qRgb(226, 164, 60);
+// rgba(90,169,214,.9) over a dark thumbnail: the relevance badge.
+const QRgb kRelevanceBadge = qRgb(84, 154, 196);
+// #1A1C1F: skeleton text bars.
+const QRgb kRaised = qRgb(26, 28, 31);
 
 const Region kTabStrip{0.01, 0.045, 0.30, 0.10};
 const Region kWall{0.18, 0.11, 0.76, 0.99};
@@ -71,6 +77,10 @@ const Region kRulesRail{0.0, 0.20, 0.27, 0.60};
 const Region kAlertRows{0.28, 0.24, 0.76, 0.50};
 const Region kDetailPlayer{0.77, 0.21, 0.99, 0.40};
 const Region kEditorFrame{0.0, 0.42, 0.27, 0.65};
+const Region kSearchGrid{0.01, 0.34, 0.74, 0.86};
+const Region kSearchPlayer{0.77, 0.34, 0.99, 0.54};
+const Region kSearchStats{0.60, 0.20, 0.99, 0.25};
+const Region kSearchMessage{0.15, 0.45, 0.60, 0.75};
 
 }
 
@@ -85,6 +95,10 @@ private slots:
   void alertLogRendersRulesAndAlerts();
   void alertDetailPlaysEvidence();
   void ruleEditorDrawsOnLiveFrame();
+  void searchShowsSkeletonWhileSearching();
+  void searchResultsShowThumbnailsAndPlayTheRange();
+  void searchEmptyStateShowsOneAction();
+  void searchErrorStateShowsTheReason();
   void cleanupTestCase();
 
 private:
@@ -250,6 +264,69 @@ void TestConsoleSmoke::ruleEditorDrawsOnLiveFrame() {
   const int frame = brightPixels(img, kEditorFrame);
   qInfo("bright pixels in the zone editor: %d", frame);
   QVERIFY2(frame > 3000, qPrintable(QStringLiteral("zone editor shows no live frame (bright: %1)").arg(frame)));
+}
+
+void TestConsoleSmoke::searchShowsSkeletonWhileSearching() {
+  QString problem;
+  const QImage img = runConsole(QStringLiteral("search"), &problem);
+  if (img.isNull()) {
+    if (strict()) QFAIL(qPrintable(problem));
+    QSKIP(qPrintable(QStringLiteral("headless console run unavailable: %1").arg(problem)));
+  }
+  const int bright = brightPixels(img, kSearchGrid);
+  const int bars = colourPixels(img, kSearchGrid, kRaised, 3);
+  qInfo("search skeleton: bright %d, skeleton bar pixels %d", bright, bars);
+  QVERIFY2(bright < 50, qPrintable(QStringLiteral("results drawn while searching (bright: %1)").arg(bright)));
+  QVERIFY2(bars > 8000, qPrintable(QStringLiteral("skeleton cards missing (bar pixels: %1)").arg(bars)));
+  QVERIFY2(stubOutput().contains(QStringLiteral("STUB search \"person walking through the lobby [slow]\" cameras=2")),
+           "the query did not reach the service with every camera");
+}
+
+void TestConsoleSmoke::searchResultsShowThumbnailsAndPlayTheRange() {
+  QString problem;
+  const QImage img = runConsole(QStringLiteral("search-results"), &problem);
+  if (img.isNull()) {
+    if (strict()) QFAIL(qPrintable(problem));
+    QSKIP(qPrintable(QStringLiteral("headless console run unavailable: %1").arg(problem)));
+  }
+  const int thumbnails = brightPixels(img, kSearchGrid);
+  const int badges = colourPixels(img, kSearchGrid, kRelevanceBadge);
+  const int player = colourPixels(img, kSearchPlayer, kStubPlayback);
+  const int coverage = colourPixels(img, kSearchStats, kWarning);
+  qInfo("search results: thumbnail bright %d, badge %d, player pattern %d, coverage warning %d", thumbnails, badges, player,
+        coverage);
+  QVERIFY2(thumbnails > 8000, qPrintable(QStringLiteral("result thumbnails missing (bright: %1)").arg(thumbnails)));
+  QVERIFY2(badges > 3000, qPrintable(QStringLiteral("relevance badges missing (pixels: %1)").arg(badges)));
+  QVERIFY2(player > 300, qPrintable(QStringLiteral("selected result not playing (pattern pixels: %1)").arg(player)));
+  QVERIFY2(coverage > 30, qPrintable(QStringLiteral("coverage below 100%% not in warning colour (pixels: %1)").arg(coverage)));
+}
+
+void TestConsoleSmoke::searchEmptyStateShowsOneAction() {
+  QString problem;
+  const QImage img = runConsole(QStringLiteral("search-empty"), &problem);
+  if (img.isNull()) {
+    if (strict()) QFAIL(qPrintable(problem));
+    QSKIP(qPrintable(QStringLiteral("headless console run unavailable: %1").arg(problem)));
+  }
+  const int action = brightPixels(img, kSearchMessage);
+  const int badges = colourPixels(img, kSearchGrid, kRelevanceBadge);
+  qInfo("search empty: action bright %d, badge %d", action, badges);
+  QVERIFY2(action > 80, qPrintable(QStringLiteral("empty state action missing (bright: %1)").arg(action)));
+  QVERIFY2(badges < 50, qPrintable(QStringLiteral("result cards drawn for an empty result (badge: %1)").arg(badges)));
+}
+
+void TestConsoleSmoke::searchErrorStateShowsTheReason() {
+  QString problem;
+  const QImage img = runConsole(QStringLiteral("search-error"), &problem);
+  if (img.isNull()) {
+    if (strict()) QFAIL(qPrintable(problem));
+    QSKIP(qPrintable(QStringLiteral("headless console run unavailable: %1").arg(problem)));
+  }
+  const int reason = colourPixels(img, kSearchMessage, kCritical);
+  const int retry = brightPixels(img, kSearchMessage);
+  qInfo("search error: reason pixels %d, retry bright %d", reason, retry);
+  QVERIFY2(reason > 100, qPrintable(QStringLiteral("error reason missing (critical pixels: %1)").arg(reason)));
+  QVERIFY2(retry > 80, qPrintable(QStringLiteral("retry action missing (bright: %1)").arg(retry)));
 }
 
 void TestConsoleSmoke::cleanupTestCase() {

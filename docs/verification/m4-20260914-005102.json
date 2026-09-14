@@ -1,0 +1,334 @@
+{
+ "platform": "darwin",
+ "machine": "arm64",
+ "cpu_count": 10,
+ "index_version_name": "siglip2-b16-224",
+ "queries": {
+  "classroom": "people sitting at desks in a classroom",
+  "walking": "a person walking across an empty parking lot",
+  "whitecar": "a white car on dark wet asphalt"
+ },
+ "loadavg_start": [
+  1.56,
+  1.82,
+  2.13
+ ],
+ "imports": {
+  "classroom": {
+   "state": "done",
+   "error": "",
+   "codec": "h264",
+   "duration_s": 32.8,
+   "segments": 4,
+   "bytes": 13545151,
+   "capture_clock": "imported",
+   "import_ms": 23,
+   "first_segment_offset_ms": 0,
+   "last_segment_end_s": 32.8
+  },
+  "walking": {
+   "state": "done",
+   "error": "",
+   "codec": "h264",
+   "duration_s": 53.952,
+   "segments": 1,
+   "bytes": 5165823,
+   "capture_clock": "imported",
+   "import_ms": 17,
+   "first_segment_offset_ms": 0,
+   "last_segment_end_s": 53.916
+  },
+  "whitecar": {
+   "state": "done",
+   "error": "",
+   "codec": "h264",
+   "duration_s": 30.208,
+   "segments": 4,
+   "bytes": 2323615,
+   "capture_clock": "imported",
+   "import_ms": 17,
+   "first_segment_offset_ms": 0,
+   "last_segment_end_s": 30.16
+  }
+ },
+ "imports_wall_s": 0.7,
+ "restart_mid_index": {
+  "queue_at_kill": {
+   "done": 4,
+   "failed": 0,
+   "queued": 4,
+   "running": 1,
+   "skipped": 0
+  },
+  "job_frames_sampled": 54,
+  "job_frames_stored": 32,
+  "job_generation_at_kill": 1,
+  "job_state_at_kill": "running",
+  "job_live_rows_at_kill": 32,
+  "resume_to_full_coverage_s": 16.4,
+  "index_version": "b63a3a358815",
+  "live_records": 117,
+  "frames_expected": 117,
+  "duplicate_instants": 0,
+  "job_generation_after": 2,
+  "job_state_after": "done",
+  "job_frames_indexed_after": 54,
+  "interrupted_attempt_rows_deleted": 32,
+  "recovery_logged": true
+ },
+ "index": {
+  "version": "b63a3a358815",
+  "model": "google/siglip2-base-patch16-224",
+  "model_revision": "75de2d55ec2d0b4efc50b3e9ad70dba96a7b2fa2",
+  "dims": 768,
+  "throughput": {
+   "compute_ms": 5798,
+   "compute_s_per_footage_hour": 178.6,
+   "footage_ms": 116876,
+   "frames_indexed": 117,
+   "realtime_factor": 20.16
+  },
+  "storage": {
+   "row_payload_bytes": 54674,
+   "rows": 117,
+   "thumbnail_bytes": 913763,
+   "vector_bytes": 361344
+  },
+  "cameras": {
+   "classroom": {
+    "frames_expected": 33,
+    "frames_indexed": 33,
+    "coverage_ratio": 1
+   },
+   "walking": {
+    "frames_expected": 54,
+    "frames_indexed": 54,
+    "coverage_ratio": 1
+   },
+   "whitecar": {
+    "frames_expected": 30,
+    "frames_indexed": 30,
+    "coverage_ratio": 1
+   }
+  }
+ },
+ "queries_result": {
+  "classroom": {
+   "query": "people sitting at desks in a classroom",
+   "index_version_name": "siglip2-b16-224",
+   "stats": {
+    "candidates": 36,
+    "coverage_ratio": 1,
+    "embed_ms": 33,
+    "frames_expected": 117,
+    "frames_indexed": 117,
+    "hours_scanned": 0.0325,
+    "sample_interval_ms": 1000,
+    "samples_scanned": 117,
+    "samples_unreadable": 0,
+    "scan_ms": 2,
+    "total_ms": 36
+   },
+   "top": [
+    {
+     "camera": "classroom",
+     "start_s": 0.3,
+     "end_s": 32.8,
+     "relevance": 0.1502,
+     "samples": 33,
+     "evidence_state": "available"
+    },
+    {
+     "camera": "walking",
+     "start_s": 40.3,
+     "end_s": 41.3,
+     "relevance": 0.0386,
+     "samples": 1,
+     "evidence_state": "available"
+    },
+    {
+     "camera": "whitecar",
+     "start_s": 24.3,
+     "end_s": 25.3,
+     "relevance": 0.0296,
+     "samples": 1,
+     "evidence_state": "available"
+    },
+    {
+     "camera": "whitecar",
+     "start_s": 20.3,
+     "end_s": 21.3,
+     "relevance": 0.0287,
+     "samples": 1,
+     "evidence_state": "available"
+    }
+   ]
+  },
+  "walking": {
+   "query": "a person walking across an empty parking lot",
+   "index_version_name": "siglip2-b16-224",
+   "stats": {
+    "candidates": 36,
+    "coverage_ratio": 1,
+    "embed_ms": 16,
+    "frames_expected": 117,
+    "frames_indexed": 117,
+    "hours_scanned": 0.0325,
+    "sample_interval_ms": 1000,
+    "samples_scanned": 117,
+    "samples_unreadable": 0,
+    "scan_ms": 0,
+    "total_ms": 17
+   },
+   "top": [
+    {
+     "camera": "walking",
+     "start_s": 19.3,
+     "end_s": 46.3,
+     "relevance": 0.2121,
+     "samples": 22,
+     "evidence_state": "available"
+    },
+    {
+     "camera": "walking",
+     "start_s": 1.3,
+     "end_s": 9.3,
+     "relevance": 0.2011,
+     "samples": 8,
+     "evidence_state": "available"
+    },
+    {
+     "camera": "walking",
+     "start_s": 11.3,
+     "end_s": 15.3,
+     "relevance": 0.1873,
+     "samples": 4,
+     "evidence_state": "available"
+    },
+    {
+     "camera": "walking",
+     "start_s": 48.3,
+     "end_s": 50.3,
+     "relevance": 0.1491,
+     "samples": 2,
+     "evidence_state": "available"
+    }
+   ]
+  },
+  "whitecar": {
+   "query": "a white car on dark wet asphalt",
+   "index_version_name": "siglip2-b16-224",
+   "stats": {
+    "candidates": 36,
+    "coverage_ratio": 1,
+    "embed_ms": 15,
+    "frames_expected": 117,
+    "frames_indexed": 117,
+    "hours_scanned": 0.0325,
+    "sample_interval_ms": 1000,
+    "samples_scanned": 117,
+    "samples_unreadable": 0,
+    "scan_ms": 1,
+    "total_ms": 17
+   },
+   "top": [
+    {
+     "camera": "whitecar",
+     "start_s": 22.3,
+     "end_s": 30.2,
+     "relevance": 0.1609,
+     "samples": 5,
+     "evidence_state": "available"
+    },
+    {
+     "camera": "whitecar",
+     "start_s": 5.3,
+     "end_s": 11.3,
+     "relevance": 0.1502,
+     "samples": 6,
+     "evidence_state": "available"
+    },
+    {
+     "camera": "walking",
+     "start_s": 7.3,
+     "end_s": 25.3,
+     "relevance": 0.1432,
+     "samples": 15,
+     "evidence_state": "available"
+    },
+    {
+     "camera": "walking",
+     "start_s": 49.3,
+     "end_s": 51.3,
+     "relevance": 0.1297,
+     "samples": 2,
+     "evidence_state": "available"
+    },
+    {
+     "camera": "walking",
+     "start_s": 29.3,
+     "end_s": 32.3,
+     "relevance": 0.1207,
+     "samples": 3,
+     "evidence_state": "available"
+    }
+   ]
+  }
+ },
+ "latency_ms": {
+  "classroom": {
+   "embed_ms": 33,
+   "scan_ms": 2,
+   "total_ms": 36
+  },
+  "walking": {
+   "embed_ms": 16,
+   "scan_ms": 0,
+   "total_ms": 17
+  },
+  "whitecar": {
+   "embed_ms": 15,
+   "scan_ms": 1,
+   "total_ms": 17
+  }
+ },
+ "playback": {
+  "offset_s": 42.3,
+  "frames_in_2s": 25,
+  "segment_start_offset_s": 0.0,
+  "position_s": 44.83
+ },
+ "retention": {
+  "classroom_live_records": 0,
+  "other_live_records": 84,
+  "thumbnails_left": 0,
+  "thumbnails_before": 33,
+  "stored_session_classroom_ranges": 0,
+  "thumbnail_status": 404,
+  "new_query_classroom_ranges": 0,
+  "new_query_top": {
+   "camera": "walking",
+   "start_s": 40.3,
+   "end_s": 41.3,
+   "relevance": 0.0386,
+   "samples": 1,
+   "evidence_state": "available"
+  },
+  "walking_top": {
+   "camera": "walking",
+   "start_s": 40.3,
+   "end_s": 46.3,
+   "relevance": 0.2121,
+   "samples": 6,
+   "evidence_state": "available"
+  },
+  "retention_audit": 4
+ },
+ "loadavg_end": [
+  1.92,
+  1.86,
+  2.13
+ ],
+ "failures": [],
+ "result": "PASS"
+}

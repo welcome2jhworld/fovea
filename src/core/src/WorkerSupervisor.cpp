@@ -10,6 +10,7 @@
 #include <QNetworkRequest>
 #include <QRandomGenerator>
 #include <QSaveFile>
+#include <algorithm>
 #include <utility>
 
 namespace fovea::core {
@@ -50,6 +51,57 @@ QString writeFreshToken(const QString& path) {
 }
 
 }
+
+bool InferenceGate::sharesGpu(const QJsonObject& health) {
+  const auto mps = [](const QJsonValue& v) { return v.toString() == QLatin1String("mps"); };
+  if (mps(health.value(QStringLiteral("detector_device"))) || mps(health.value(QStringLiteral("embed_device")))) return true;
+  const QJsonObject versions = health.value(QStringLiteral("embed_versions")).toObject();
+  return std::any_of(versions.begin(), versions.end(), [&mps](const QJsonValue& v) { return mps(v.toObject().value(QStringLiteral("device"))); });
+}
+
+void InferenceGate::setShared(bool shared) {
+  if (shared_ == shared) return;
+  shared_ = shared;
+  if (!shared) emit released();
+}
+
+bool InferenceGate::mayPost(Lane lane, int64_t nowMonoNs) const {
+  if (!shared_) return true;
+  const int other = lane == Lane::Detect ? index(Lane::Embed) : index(Lane::Detect);
+  if (open_[other] > 0 || draining_[other]) return false;
+  const bool embedOverdue = embedWaitingSinceNs_ > 0 && nowMonoNs - embedWaitingSinceNs_ > kEmbedMaxWaitNs;
+  return lane == Lane::Detect ? !embedOverdue : (!detectWaiting_ || embedOverdue);
+}
+
+void InferenceGate::opened(Lane lane, int64_t nowMonoNs) {
+  ++open_[index(lane)];
+  if (lane == Lane::Detect) lastDetectNs_ = nowMonoNs;
+}
+
+void InferenceGate::closed(Lane lane, bool abandoned) {
+  const int i = index(lane);
+  open_[i] = std::max(0, open_[i] - 1);
+  if (abandoned && shared_) draining_[i] = true;
+  emit released();
+}
+
+void InferenceGate::laneIdle(Lane lane) {
+  if (!std::exchange(draining_[index(lane)], false)) return;
+  emit released();
+}
+
+void InferenceGate::reset() {
+  draining_[0] = draining_[1] = false;
+  emit released();
+}
+
+void InferenceGate::setDetectWaiting(bool waiting) {
+  if (std::exchange(detectWaiting_, waiting) && !waiting) emit released();
+}
+
+void InferenceGate::setEmbedWaitingSince(int64_t monoNs) { embedWaitingSinceNs_ = monoNs; }
+
+bool InferenceGate::detectRecently(int64_t nowMonoNs) const { return lastDetectNs_ > 0 && nowMonoNs - lastDetectNs_ < kRecentDetectNs; }
 
 QString detectorRestartReason(const QJsonObject& health, int* detectorFailures) {
   const qint64 busyMs = health.value(QStringLiteral("detector_busy_ms")).toInteger();
@@ -127,6 +179,7 @@ void WorkerSupervisor::launch() {
   }
   port_ = 0;
   health_ = {};
+  gate_.reset();
   healthFailures_ = 0;
   detectorFailures_ = 0;
   auto* process = new QProcess(this);
@@ -136,12 +189,11 @@ void WorkerSupervisor::launch() {
   process->setUnixProcessParameters(QProcess::UnixProcessFlag::CloseFileDescriptors);
 #endif
   process->setProgram(command_->program);
-  process->setArguments(command_->arguments + QStringList{
-                                                  QStringLiteral("serve"), QStringLiteral("--backend"), QStringLiteral("dry"),
-                                                  QStringLiteral("--detector"), QStringLiteral("rfdetr"), QStringLiteral("--port"),
-                                                  QStringLiteral("0"), QStringLiteral("--token-file"), workerTokenPath(dataDir_),
-                                                  QStringLiteral("--info-file"), workerInfoPath(dataDir_), QStringLiteral("--warmup"),
-                                                  QStringLiteral("--exit-on-stdin-eof")});
+  QStringList arguments = command_->arguments;
+  arguments << QStringLiteral("serve") << QStringLiteral("--backend") << QStringLiteral("dry") << QStringLiteral("--detector")
+            << QStringLiteral("rfdetr") << QStringLiteral("--embedder") << QStringLiteral("transformers") << QStringLiteral("--port") << QStringLiteral("0") << QStringLiteral("--token-file") << workerTokenPath(dataDir_)
+            << QStringLiteral("--info-file") << workerInfoPath(dataDir_) << QStringLiteral("--warmup") << QStringLiteral("--exit-on-stdin-eof");
+  process->setArguments(arguments);
   if (!command_->workingDirectory.isEmpty()) process->setWorkingDirectory(command_->workingDirectory);
   QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
   env.insert(QStringLiteral("PYTHONUNBUFFERED"), QStringLiteral("1"));
@@ -209,6 +261,9 @@ void WorkerSupervisor::onHealth(bool ok, const QJsonObject& body, const QString&
   healthFailures_ = 0;
   const QString previousDetector = detectorState();
   health_ = body;
+  gate_.setShared(InferenceGate::sharesGpu(body));
+  if (body.value(QStringLiteral("detector_busy_ms")).toInteger() == 0) gate_.laneIdle(InferenceGate::Lane::Detect);
+  if (body.value(QStringLiteral("embed_busy_ms")).toInteger() == 0) gate_.laneIdle(InferenceGate::Lane::Embed);
   healthTimer_.setInterval(detectorState() == QLatin1String("loading") ? kHealthLoadingIntervalMs : kHealthIntervalMs);
   if (detectorState() != previousDetector)
     qInfo("worker: detector %s%s", qPrintable(detectorState()),
@@ -244,6 +299,7 @@ void WorkerSupervisor::fail(const QString& reason) {
       process->kill();
     }
   }
+  gate_.reset();
   port_ = 0;
   health_ = {};
   const int64_t delayMs = backoff_.nextDelayMs();
@@ -279,6 +335,11 @@ bool WorkerSupervisor::detectorAvailable() const {
   return ready() && (s == QLatin1String("ready") || s == QLatin1String("unloaded"));
 }
 
+bool WorkerSupervisor::embedAvailable() const {
+  const QString s = detectorState();
+  return ready() && (s == QLatin1String("ready") || s == QLatin1String("failed") || s == QLatin1String("unavailable"));
+}
+
 QString WorkerSupervisor::detectorState() const { return health_.value(QStringLiteral("detector_state")).toString(); }
 
 QString WorkerSupervisor::baseUrl() const { return QStringLiteral("http://127.0.0.1:%1").arg(port_); }
@@ -293,7 +354,8 @@ QJsonObject WorkerSupervisor::toJson() const {
                 {"restarts", restarts_},
                 {"last_error", lastError_}};
   for (const char* key : {"detector", "detector_model", "detector_state", "detector_device", "detector_load_ms",
-                          "detector_load_error", "detector_busy_ms", "detector_turnaround_ms"})
+                          "detector_load_error", "detector_busy_ms", "detector_turnaround_ms", "embedder", "embed_state",
+                          "embed_device", "embed_busy_ms", "embed_turnaround_ms", "embed_versions"})
     if (health_.contains(QLatin1String(key))) o.insert(QLatin1String(key), health_.value(QLatin1String(key)));
   return o;
 }

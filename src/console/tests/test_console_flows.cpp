@@ -1,17 +1,27 @@
-// Drives the console's service client, event store, alert dispatcher and rule
-// editor in process against console-stub-core: operator actions, zone and rule
-// saves, and delivery of a live alert. The stub's data is a TEST FIXTURE.
+// Drives the console's service client, event store, alert dispatcher, rule
+// editor and search screen in process against console-stub-core: operator
+// actions, zone and rule saves, delivery of a live alert, and search results,
+// cancellation, filters and the empty and error states. The stub's data is a
+// TEST FIXTURE.
 #include "alerts/AlertLogic.h"
 #include "core/AlertDispatcher.h"
 #include "core/CoreClient.h"
 #include "core/EventStore.h"
 #include "core/StatusPoller.h"
+#include "core/ThumbnailCache.h"
 #include "screens/alerts/RuleEditor.h"
+#include "screens/MainTabBar.h"
+#include "screens/MainWindow.h"
 #include "screens/alerts/ZoneCanvas.h"
+#include "screens/search/ResultGrid.h"
+#include "screens/search/SearchScreen.h"
 #include "fovea/Clock.h"
+#include <QApplication>
 #include <QElapsedTimer>
 #include <QFile>
 #include <QHash>
+#include <QJsonArray>
+#include <QLabel>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QLineEdit>
@@ -42,11 +52,18 @@ private slots:
   void ruleEditorCreatesZoneAndRule();
   void ruleEditorRevisesRuleKeepingZone();
   void dispatcherShowsPopsAndConfirmsLiveAlert();
+  void searchShowsRankedResultsAndStats();
+  void searchCancelsTheRunningQuery();
+  void searchSendsTimeAndCameraFilters();
+  void searchEmptyAndErrorStatesOfferOneAction();
+  void searchKeyboardMovesSelectionAndTogglesPlayback();
+  void commandKOpensSearchFromAnotherScreen();
   void cleanupTestCase();
 
 private:
   void saveEditor(RuleEditor& editor, QString* savedId);
   void setEventsDelay(int ms);
+  QJsonObject getJson(const QString& path);
 
   QTemporaryDir dir_;
   QProcess stub_;
@@ -183,6 +200,21 @@ void TestConsoleFlows::ruleEditorRevisesRuleKeepingZone() {
   QCOMPARE(revised.preserved.value("rearm_ns").toDouble(), original.preserved.value("rearm_ns").toDouble());
 }
 
+QJsonObject TestConsoleFlows::getJson(const QString& path) {
+  QFile tokenFile(dir_.path() + QStringLiteral("/core.token"));
+  if (!tokenFile.open(QIODevice::ReadOnly)) return {};
+  QNetworkRequest request(QUrl(client_->baseUrl() + path));
+  request.setRawHeader("Authorization", "Bearer " + tokenFile.readAll().trimmed());
+  QNetworkAccessManager network;
+  QNetworkReply* reply = network.get(request);
+  QElapsedTimer t;
+  t.start();
+  while (!reply->isFinished() && t.elapsed() < kLoadMs) QTest::qWait(20);
+  const QJsonObject object = QJsonDocument::fromJson(reply->readAll()).object();
+  reply->deleteLater();
+  return object;
+}
+
 void TestConsoleFlows::setEventsDelay(int ms) {
   QFile tokenFile(dir_.path() + QStringLiteral("/core.token"));
   QVERIFY(tokenFile.open(QIODevice::ReadOnly));
@@ -240,6 +272,166 @@ void TestConsoleFlows::dispatcherShowsPopsAndConfirmsLiveAlert() {
   }
   qInfo("sound delivery for the live alert: %s", qPrintable(soundState));
   setEventsDelay(0);
+}
+
+void TestConsoleFlows::searchShowsRankedResultsAndStats() {
+  ThumbnailCache thumbnails(*client_, ThumbnailCache::Source::SearchRecord);
+  SearchScreen screen(*client_, thumbnails);
+  screen.setCameras(cameras_);
+  screen.search(QStringLiteral("person walking across the gate apron"));
+  QCOMPARE(screen.state(), SearchScreen::State::Searching);
+  QTRY_COMPARE_WITH_TIMEOUT(screen.state(), SearchScreen::State::Results, kLoadMs);
+
+  const SearchResponseInfo& response = screen.response();
+  QCOMPARE(response.results.size(), 8);
+  QCOMPARE(indexVersionLabel(response), QStringLiteral("siglip2-b16-224 · 5f0c2a9e41d7"));
+  for (int i = 1; i < response.results.size(); ++i) QVERIFY(response.results[i - 1].relevance >= response.results[i].relevance);
+  for (const SearchResultInfo& r : response.results) {
+    QVERIFY(!r.recordId.isEmpty());
+    QVERIFY(r.endUtcMs > r.startUtcMs);
+  }
+  const auto* stats = screen.findChild<QLabel*>(QStringLiteral("SearchStats"));
+  QVERIFY(stats->text().contains(QStringLiteral("8 results")));
+  QVERIFY(stats->text().contains(QStringLiteral("<span style=\"color:#E2A43C\">coverage 87%</span>")));
+  QVERIFY(stats->toolTip().contains(QStringLiteral("not indexed")));
+  const auto* relevance = screen.findChild<QLabel*>(QStringLiteral("InspectorRelevance"));
+  QCOMPARE(relevance->text(), QStringLiteral("relevance 0.31"));
+
+  const QString record = response.results.first().recordId;
+  QTRY_VERIFY_WITH_TIMEOUT(!thumbnails.thumbnail(record).isNull(), kLoadMs);
+  QCOMPARE(thumbnails.thumbnail(record).width(), 640);
+
+  const QJsonObject session = getJson(QStringLiteral("/v1/search/%1").arg(response.sessionId));
+  QCOMPARE(session.value("query").toString(), QStringLiteral("person walking across the gate apron"));
+  QCOMPARE(session.value("results").toArray().size(), 8);
+}
+
+// The slow query is aborted synchronously when the next one starts, so the number of
+// outstanding requests does not grow, and the fast answer arrives without waiting for it.
+void TestConsoleFlows::searchCancelsTheRunningQuery() {
+  ThumbnailCache thumbnails(*client_, ThumbnailCache::Source::SearchRecord);
+  SearchScreen screen(*client_, thumbnails);
+  screen.setCameras(cameras_);
+  QSignalSpy states(&screen, &SearchScreen::stateChanged);
+  screen.search(QStringLiteral("person walking through the lobby [slow]"));
+  const int withSlowQuery = client_->pendingRequests();
+  QElapsedTimer t;
+  t.start();
+  screen.search(QStringLiteral("person walking across the gate apron"));
+  QCOMPARE(client_->pendingRequests(), withSlowQuery);
+  QTRY_COMPARE_WITH_TIMEOUT(screen.state(), SearchScreen::State::Results, kLoadMs);
+  QVERIFY2(t.elapsed() < 5000, qPrintable(QStringLiteral("results took %1 ms").arg(t.elapsed())));
+  QCOMPARE(screen.response().results.size(), 8);
+  QTest::qWait(300);
+  QCOMPARE(screen.state(), SearchScreen::State::Results);
+  QCOMPARE(states.count(), 2);
+}
+
+void TestConsoleFlows::searchSendsTimeAndCameraFilters() {
+  ThumbnailCache thumbnails(*client_, ThumbnailCache::Source::SearchRecord);
+  SearchScreen screen(*client_, thumbnails);
+  screen.setCameras(cameras_);
+  const QString lobby = cameras_[1].id;
+  screen.setCameraFilter({lobby});
+  screen.search(QStringLiteral("person walking across the gate apron"));
+  QTRY_COMPARE_WITH_TIMEOUT(screen.state(), SearchScreen::State::Results, kLoadMs);
+  QCOMPARE(screen.response().results.size(), 4);
+  for (const SearchResultInfo& r : screen.response().results) QCOMPARE(r.cameraId, lobby);
+  const QJsonObject filters = getJson(QStringLiteral("/v1/search/%1").arg(screen.response().sessionId)).value("filters").toObject();
+  QCOMPARE(filters.value("camera_ids").toArray(), QJsonArray{lobby});
+  QCOMPARE(static_cast<int64_t>(filters.value("to_utc_ms").toDouble() - filters.value("from_utc_ms").toDouble()), kDayMs);
+  QCOMPARE(filters.value("limit").toInt(), SearchScreen::kResultLimit);
+  QCOMPARE(filters.value("min_gap_ms").toInt(), SearchScreen::kMinGapMs);
+
+  screen.setCameraFilter({});
+  screen.setRangePreset(RangePreset::LastHour);
+  screen.search(QStringLiteral("person walking across the gate apron"));
+  QTRY_COMPARE_WITH_TIMEOUT(screen.state(), SearchScreen::State::Results, kLoadMs);
+  QCOMPARE(screen.response().results.size(), 6);
+  const QJsonObject hourFilters = getJson(QStringLiteral("/v1/search/%1").arg(screen.response().sessionId)).value("filters").toObject();
+  QCOMPARE(hourFilters.value("camera_ids").toArray().size(), cameras_.size());
+  QCOMPARE(static_cast<int64_t>(hourFilters.value("to_utc_ms").toDouble() - hourFilters.value("from_utc_ms").toDouble()), kHourMs);
+}
+
+void TestConsoleFlows::searchEmptyAndErrorStatesOfferOneAction() {
+  ThumbnailCache thumbnails(*client_, ThumbnailCache::Source::SearchRecord);
+  SearchScreen screen(*client_, thumbnails);
+  screen.setCameras(cameras_);
+  auto* action = screen.findChild<QPushButton*>(QStringLiteral("SearchMessageAction"));
+  auto* detail = screen.findChild<QLabel*>(QStringLiteral("SearchMessageDetail"));
+
+  screen.search(QStringLiteral("red umbrella left on a bench [empty]"));
+  QTRY_COMPARE_WITH_TIMEOUT(screen.state(), SearchScreen::State::Empty, kLoadMs);
+  QVERIFY(action->isVisibleTo(&screen));
+  QCOMPARE(action->text(), QStringLiteral("Search the last 7 days"));
+  QVERIFY(!screen.findChild<QLabel*>(QStringLiteral("SearchMessage"))->text().isEmpty());
+  action->click();
+  QCOMPARE(screen.state(), SearchScreen::State::Searching);
+  QTRY_COMPARE_WITH_TIMEOUT(screen.state(), SearchScreen::State::Empty, kLoadMs);
+  const QJsonObject filters = getJson(QStringLiteral("/v1/search/%1").arg(screen.response().sessionId)).value("filters").toObject();
+  QCOMPARE(static_cast<int64_t>(filters.value("to_utc_ms").toDouble() - filters.value("from_utc_ms").toDouble()), kWeekMs);
+  QCOMPARE(action->text(), QStringLiteral("Edit the query"));
+
+  screen.search(QStringLiteral("person at the turnstiles [error]"));
+  QTRY_COMPARE_WITH_TIMEOUT(screen.state(), SearchScreen::State::Error, kLoadMs);
+  QCOMPARE(action->text(), QStringLiteral("Retry"));
+  QVERIFY(detail->text().contains(QStringLiteral("503")));
+  QVERIFY(detail->text().contains(QStringLiteral("did not answer")));
+  QSignalSpy states(&screen, &SearchScreen::stateChanged);
+  action->click();
+  QTRY_COMPARE_WITH_TIMEOUT(screen.state(), SearchScreen::State::Error, kLoadMs);
+  QCOMPARE(states.count(), 2);
+}
+
+void TestConsoleFlows::searchKeyboardMovesSelectionAndTogglesPlayback() {
+  ThumbnailCache thumbnails(*client_, ThumbnailCache::Source::SearchRecord);
+  SearchScreen screen(*client_, thumbnails);
+  screen.setCameras(cameras_);
+  screen.resize(1580, 1000);
+  screen.show();
+  QVERIFY(QTest::qWaitForWindowExposed(&screen));
+  auto* query = screen.findChild<QLineEdit*>(QStringLiteral("QueryField"));
+  auto* grid = screen.findChild<ResultGrid*>();
+  screen.focusQuery();
+  QTest::keyClicks(query, QStringLiteral("person walking across the gate apron"));
+  QTest::keyClick(query, Qt::Key_Return);
+  QTRY_COMPARE_WITH_TIMEOUT(screen.state(), SearchScreen::State::Results, kLoadMs);
+  QCOMPARE(grid->currentIndex().row(), 0);
+  const auto* relevance = screen.findChild<QLabel*>(QStringLiteral("InspectorRelevance"));
+  QCOMPARE(relevance->text(), QStringLiteral("relevance 0.31"));
+  QTest::keyClick(grid, Qt::Key_Right);
+  QCOMPARE(grid->currentIndex().row(), 1);
+  QCOMPARE(relevance->text(), QStringLiteral("relevance 0.30"));
+  QTest::keyClick(grid, Qt::Key_Down);
+  QCOMPARE(grid->currentIndex().row(), 5);
+  QSignalSpy toggles(grid, &ResultGrid::playbackToggleRequested);
+  QTest::keyClick(grid, Qt::Key_Space);
+  QCOMPARE(toggles.count(), 1);
+  QCOMPARE(grid->currentIndex().row(), 5);
+}
+
+// Last: the window is a new console session, for which the stub raises one more live alert.
+void TestConsoleFlows::commandKOpensSearchFromAnotherScreen() {
+  MainWindow window;
+  window.resize(1440, 900);
+  window.show();
+  QVERIFY(QTest::qWaitForWindowExposed(&window));
+  window.activateWindow();
+  QVERIFY(QTest::qWaitForWindowActive(&window));
+  auto* tabs = window.findChild<NavTabs*>();
+  auto* query = window.findChild<QLineEdit*>(QStringLiteral("QueryField"));
+  QVERIFY(tabs && query);
+  tabs->setCurrentIndex(2);
+  QTest::keyClick(&window, Qt::Key_K, Qt::ControlModifier);
+  QCOMPARE(tabs->currentIndex(), 1);
+  QTRY_VERIFY_WITH_TIMEOUT(query->hasFocus(), kLoadMs);
+  query->setText(QStringLiteral("typed"));
+  tabs->setCurrentIndex(0);
+  QTest::keyClick(QApplication::focusWidget() ? QApplication::focusWidget() : &window, Qt::Key_K, Qt::ControlModifier);
+  QCOMPARE(tabs->currentIndex(), 1);
+  QTRY_VERIFY_WITH_TIMEOUT(query->hasFocus(), kLoadMs);
+  QCOMPARE(query->selectedText(), QStringLiteral("typed"));
+  window.close();
 }
 
 void TestConsoleFlows::cleanupTestCase() {

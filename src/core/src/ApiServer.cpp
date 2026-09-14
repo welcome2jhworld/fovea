@@ -40,12 +40,13 @@ QJsonObject cameraWithStatus(const Camera& c, const std::optional<CameraStatus>&
 }
 
 ApiServer::ApiServer(CameraManager& cameras, PlaybackManager& playback, RetentionManager& retention, Store& store,
-                     AnalyticsServices analytics, QString token, QObject* parent)
+                     AnalyticsServices analytics, IndexServices indexing, QString token, QObject* parent)
     : QObject(parent), cameras_(cameras), playback_(playback), retention_(retention), store_(store), analytics_(analytics),
-      token_(std::move(token)) {
+      indexing_(indexing), token_(std::move(token)) {
   cpu_.sample(monoNowNs(), processCpuTimeNs());
   registerRoutes();
   registerAnalyticsRoutes();
+  registerSearchRoutes();
 }
 
 bool ApiServer::listen(quint16 port) {

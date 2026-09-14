@@ -80,13 +80,16 @@ Local test camera without hardware (from this folder):
   bin\rtsp-testsrc.exe --list-devices
 Add the URL in the console with "+ Add".
 
-Detection and alerts (optional, needs Python 3.12 and internet once):
+Detection, alerts and search (optional, needs Python 3.12 and internet once):
   Setup-Worker.cmd
 This creates worker\.venv with PyTorch (CUDA build when an NVIDIA GPU is
-present) and the RF-DETR detector. fovea-core finds it automatically on the
+present) and the RF-DETR detector, and downloads the search embedding model
+(SigLIP 2, about 1.5 GB). fovea-core finds the worker automatically on the
 next start. The detector weights (about 370 MB) download on first use.
 Then open Alerts & Analytics, create a rule with a zone on a camera that has
-"Run analytics on this camera" enabled.
+"Run analytics on this camera" enabled, or open Search and ask a question in
+Korean or English once the index line under the filters shows coverage.
+Recordings are indexed one frame per second after each segment closes.
 
 Self test (Python 3.10+ on PATH):
   python verify_m1.py --bin-dir bin --flat

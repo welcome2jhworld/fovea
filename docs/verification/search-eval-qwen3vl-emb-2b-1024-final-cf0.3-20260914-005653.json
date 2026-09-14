@@ -1,0 +1,2680 @@
+{
+ "generated_utc_ms": 1789347413266,
+ "platform": "darwin",
+ "machine": "arm64",
+ "cpu_count": 10,
+ "question_set": {
+  "file": "questions.json",
+  "split": "final",
+  "questions": 36,
+  "answered": 36,
+  "skipped": 0
+ },
+ "corpus": [
+  {
+   "name": "classroom",
+   "sha256": "a69bd5e39ff0",
+   "duration_s": 32.8,
+   "segments": 4
+  },
+  {
+   "name": "lot-walking",
+   "sha256": "452b11b7e0ef",
+   "duration_s": 53.92,
+   "segments": 6
+  },
+  {
+   "name": "lot-whitecar",
+   "sha256": "d31e0ebf194c",
+   "duration_s": 30.16,
+   "segments": 4
+  },
+  {
+   "name": "market-square",
+   "sha256": "21684157ced2",
+   "duration_s": 7.9,
+   "segments": 1
+  },
+  {
+   "name": "people-walking",
+   "sha256": "822671fb20ed",
+   "duration_s": 13.64,
+   "segments": 2
+  },
+  {
+   "name": "skiing",
+   "sha256": "81ffb0d36708",
+   "duration_s": 14.12,
+   "segments": 2
+  }
+ ],
+ "index_version": {
+  "name": "qwen3vl-emb-2b-1024",
+  "hash": "086fb0b0080e",
+  "model": "Qwen/Qwen3-VL-Embedding-2B",
+  "model_revision": "9f2f7e710d6d81056aa5c0a4f04764fec6bb7bda",
+  "dims": 1024,
+  "sample_interval_ms": 1000,
+  "descriptor": {
+   "dims": 1024,
+   "dtype": "float16",
+   "model_id": "Qwen/Qwen3-VL-Embedding-2B",
+   "model_revision": "9f2f7e710d6d81056aa5c0a4f04764fec6bb7bda",
+   "name": "qwen3vl-emb-2b-1024",
+   "preprocessing": {
+    "chat": "system instruction, user content, chat template with generation prompt, right padding",
+    "image_processor": "Qwen2VLImageProcessor",
+    "image_resize": "qwen_vl_utils smart_resize factor 32 min_pixels 4096 max_pixels 262144, processor do_resize false",
+    "max_length": 8192,
+    "mrl_dims": 1024,
+    "pooling": "last token",
+    "vector": "float32 truncate then l2"
+   },
+   "prompt_template": "frame: system 'Represent the user's input.' user image; query: system 'Retrieve surveillance camera frames that show what the user describes.' user text",
+   "sample_interval_ms": 1000
+  }
+ },
+ "settings": {
+  "limit": 50,
+  "min_gap_ms": 3000,
+  "segment_seconds": 10,
+  "candidate_fraction": 0.3,
+  "min_overlap_ms": 1000
+ },
+ "returned_ranges": {
+  "mean": 10.36,
+  "max": 18
+ },
+ "headline": {
+  "questions": 24,
+  "recall@1": 0.875,
+  "recall@5": 0.9167,
+  "recall@10": 0.9583,
+  "precision@5": 0.3167,
+  "precision@10": 0.1958,
+  "temporal_error_s": {
+   "start_median": 1.833,
+   "start_p90": 13.776,
+   "end_median": 2.167,
+   "end_p90": 20.788,
+   "n": 23
+  },
+  "misses": {
+   "@1": {
+    "not_retrieved": 1,
+    "ranked_low": 2
+   },
+   "@5": {
+    "not_retrieved": 1,
+    "ranked_low": 1
+   },
+   "@10": {
+    "not_retrieved": 1,
+    "ranked_low": 0
+   }
+  },
+  "not_retrieved_means": "no overlapping range among those returned, with limit 50 and the candidates capped at candidate_fraction of the samples scanned"
+ },
+ "by_language": {
+  "ko": {
+   "questions": 13,
+   "recall@1": 0.7692,
+   "recall@5": 0.8462,
+   "recall@10": 0.9231,
+   "precision@5": 0.3538,
+   "precision@10": 0.2462,
+   "temporal_error_s": {
+    "start_median": 1.2665,
+    "start_p90": 6.2907,
+    "end_median": 3.3135,
+    "end_p90": 27.186,
+    "n": 12
+   },
+   "misses": {
+    "@1": {
+     "not_retrieved": 1,
+     "ranked_low": 2
+    },
+    "@5": {
+     "not_retrieved": 1,
+     "ranked_low": 1
+    },
+    "@10": {
+     "not_retrieved": 1,
+     "ranked_low": 0
+    }
+   },
+   "not_retrieved_means": "no overlapping range among those returned, with limit 50 and the candidates capped at candidate_fraction of the samples scanned"
+  },
+  "en": {
+   "questions": 11,
+   "recall@1": 1.0,
+   "recall@5": 1.0,
+   "recall@10": 1.0,
+   "precision@5": 0.2727,
+   "precision@10": 0.1364,
+   "temporal_error_s": {
+    "start_median": 6.82,
+    "start_p90": 20.833,
+    "end_median": 2.167,
+    "end_p90": 12.8,
+    "n": 11
+   },
+   "misses": {
+    "@1": {
+     "not_retrieved": 0,
+     "ranked_low": 0
+    },
+    "@5": {
+     "not_retrieved": 0,
+     "ranked_low": 0
+    },
+    "@10": {
+     "not_retrieved": 0,
+     "ranked_low": 0
+    }
+   },
+   "not_retrieved_means": "no overlapping range among those returned, with limit 50 and the candidates capped at candidate_fraction of the samples scanned"
+  }
+ },
+ "by_category": {
+  "action": {
+   "questions": 6,
+   "recall@1": 0.8333,
+   "recall@5": 1.0,
+   "recall@10": 1.0,
+   "precision@5": 0.2,
+   "precision@10": 0.1,
+   "temporal_error_s": {
+    "start_median": 5.8,
+    "start_p90": 17.5665,
+    "end_median": 14.55,
+    "end_p90": 22.55,
+    "n": 6
+   },
+   "misses": {
+    "@1": {
+     "not_retrieved": 0,
+     "ranked_low": 1
+    },
+    "@5": {
+     "not_retrieved": 0,
+     "ranked_low": 0
+    },
+    "@10": {
+     "not_retrieved": 0,
+     "ranked_low": 0
+    }
+   },
+   "not_retrieved_means": "no overlapping range among those returned, with limit 50 and the candidates capped at candidate_fraction of the samples scanned"
+  },
+  "attribute": {
+   "questions": 6,
+   "recall@1": 0.8333,
+   "recall@5": 0.8333,
+   "recall@10": 0.8333,
+   "precision@5": 0.2333,
+   "precision@10": 0.1167,
+   "temporal_error_s": {
+    "start_median": 0.68,
+    "start_p90": 5.936,
+    "end_median": 2.167,
+    "end_p90": 17.46,
+    "n": 5
+   },
+   "misses": {
+    "@1": {
+     "not_retrieved": 1,
+     "ranked_low": 0
+    },
+    "@5": {
+     "not_retrieved": 1,
+     "ranked_low": 0
+    },
+    "@10": {
+     "not_retrieved": 1,
+     "ranked_low": 0
+    }
+   },
+   "not_retrieved_means": "no overlapping range among those returned, with limit 50 and the candidates capped at candidate_fraction of the samples scanned"
+  },
+  "count": {
+   "questions": 4,
+   "recall@1": 1.0,
+   "recall@5": 1.0,
+   "recall@10": 1.0,
+   "precision@5": 0.45,
+   "precision@10": 0.275,
+   "temporal_error_s": {
+    "start_median": 3.52,
+    "start_p90": 20.668,
+    "end_median": 2.8335,
+    "end_p90": 9.8621,
+    "n": 4
+   },
+   "misses": {
+    "@1": {
+     "not_retrieved": 0,
+     "ranked_low": 0
+    },
+    "@5": {
+     "not_retrieved": 0,
+     "ranked_low": 0
+    },
+    "@10": {
+     "not_retrieved": 0,
+     "ranked_low": 0
+    }
+   },
+   "not_retrieved_means": "no overlapping range among those returned, with limit 50 and the candidates capped at candidate_fraction of the samples scanned"
+  },
+  "presence": {
+   "questions": 3,
+   "recall@1": 1.0,
+   "recall@5": 1.0,
+   "recall@10": 1.0,
+   "precision@5": 0.5333,
+   "precision@10": 0.2667,
+   "temporal_error_s": {
+    "start_median": 1.833,
+    "start_p90": 5.8226,
+    "end_median": 0.667,
+    "end_p90": 9.0614,
+    "n": 3
+   },
+   "misses": {
+    "@1": {
+     "not_retrieved": 0,
+     "ranked_low": 0
+    },
+    "@5": {
+     "not_retrieved": 0,
+     "ranked_low": 0
+    },
+    "@10": {
+     "not_retrieved": 0,
+     "ranked_low": 0
+    }
+   },
+   "not_retrieved_means": "no overlapping range among those returned, with limit 50 and the candidates capped at candidate_fraction of the samples scanned"
+  },
+  "scene": {
+   "questions": 5,
+   "recall@1": 0.8,
+   "recall@5": 0.8,
+   "recall@10": 1.0,
+   "precision@5": 0.32,
+   "precision@10": 0.3,
+   "temporal_error_s": {
+    "start_median": 0.717,
+    "start_p90": 9.2748,
+    "end_median": 0.001,
+    "end_p90": 23.3358,
+    "n": 5
+   },
+   "misses": {
+    "@1": {
+     "not_retrieved": 0,
+     "ranked_low": 1
+    },
+    "@5": {
+     "not_retrieved": 0,
+     "ranked_low": 1
+    },
+    "@10": {
+     "not_retrieved": 0,
+     "ranked_low": 0
+    }
+   },
+   "not_retrieved_means": "no overlapping range among those returned, with limit 50 and the candidates capped at candidate_fraction of the samples scanned"
+  }
+ },
+ "ambiguous": {
+  "questions": 4,
+  "recall@1": 0.75,
+  "recall@5": 1.0,
+  "recall@10": 1.0,
+  "precision@5": 0.45,
+  "precision@10": 0.25,
+  "temporal_error_s": {
+   "start_median": 6.34,
+   "start_p90": 9.27,
+   "end_median": 2.65,
+   "end_p90": 9.104,
+   "n": 4
+  },
+  "misses": {
+   "@1": {
+    "not_retrieved": 0,
+    "ranked_low": 1
+   },
+   "@5": {
+    "not_retrieved": 0,
+    "ranked_low": 0
+   },
+   "@10": {
+    "not_retrieved": 0,
+    "ranked_low": 0
+   }
+  },
+  "not_retrieved_means": "no overlapping range among those returned, with limit 50 and the candidates capped at candidate_fraction of the samples scanned"
+ },
+ "negatives": {
+  "questions": 8,
+  "top_relevance": {
+   "min": 0.3537,
+   "median": 0.4582,
+   "max": 0.5439
+  },
+  "positive_top_relevance": {
+   "min": 0.3414,
+   "median": 0.5728,
+   "max": 0.747
+  },
+  "above_median_positive": 0.0
+ },
+ "latency_ms": {
+  "embed": {
+   "p50": 84.0,
+   "p95": 111.5
+  },
+  "scan": {
+   "p50": 1.0,
+   "p95": 1.0
+  },
+  "total": {
+   "p50": 86.5,
+   "p95": 114.5
+  },
+  "client_wall": {
+   "p50": 88.15,
+   "p95": 116.125
+  }
+ },
+ "index_cost": {
+  "footage_s": 152.53,
+  "compute_s": 134.59,
+  "compute_s_per_footage_hour": 3176.5,
+  "vector_bytes_per_hour": 14754029,
+  "thumbnail_bytes_per_hour": 44117642,
+  "row_payload_bytes_per_hour": 1650246,
+  "records": 152,
+  "frames_indexed": 152
+ },
+ "questions": [
+  {
+   "id": "f001",
+   "query": "교실에 학생들이 앉아 있는 장면",
+   "language": "ko",
+   "category": "scene",
+   "negative": false,
+   "ambiguous": false,
+   "pair": null,
+   "candidate_fraction": 0.3,
+   "wall_ms": 144.2,
+   "stats": {
+    "embed_ms": 138,
+    "scan_ms": 3,
+    "total_ms": 142,
+    "coverage_ratio": 1,
+    "samples_scanned": 152
+   },
+   "top_relevance": 0.534,
+   "results": 6,
+   "top": [
+    {
+     "video": "classroom",
+     "start_s": 0.7,
+     "end_s": 32.8,
+     "relevance": 0.534,
+     "samples": 33
+    },
+    {
+     "video": "lot-walking",
+     "start_s": 44.67,
+     "end_s": 45.67,
+     "relevance": 0.3467,
+     "samples": 1
+    },
+    {
+     "video": "lot-whitecar",
+     "start_s": 28.64,
+     "end_s": 30.16,
+     "relevance": 0.3455,
+     "samples": 2
+    },
+    {
+     "video": "people-walking",
+     "start_s": 0.68,
+     "end_s": 5.68,
+     "relevance": 0.3376,
+     "samples": 4
+    },
+    {
+     "video": "people-walking",
+     "start_s": 11.68,
+     "end_s": 13.64,
+     "relevance": 0.3244,
+     "samples": 2
+    }
+   ],
+   "first_hit_rank": 1,
+   "hit@1": true,
+   "hit@5": true,
+   "hit@10": true,
+   "precision@5": 0.2,
+   "precision@10": 0.1,
+   "start_error_s": 0.7,
+   "end_error_s": 0.0
+  },
+  {
+   "id": "f002",
+   "query": "위에서 내려다본 주차장",
+   "language": "ko",
+   "category": "scene",
+   "negative": false,
+   "ambiguous": false,
+   "pair": null,
+   "candidate_fraction": 0.3,
+   "wall_ms": 90.4,
+   "stats": {
+    "embed_ms": 86,
+    "scan_ms": 1,
+    "total_ms": 89,
+    "coverage_ratio": 1,
+    "samples_scanned": 152
+   },
+   "top_relevance": 0.6177,
+   "results": 11,
+   "top": [
+    {
+     "video": "lot-walking",
+     "start_s": 5.67,
+     "end_s": 15.67,
+     "relevance": 0.6177,
+     "samples": 9
+    },
+    {
+     "video": "lot-walking",
+     "start_s": 18.67,
+     "end_s": 26.67,
+     "relevance": 0.6003,
+     "samples": 8
+    },
+    {
+     "video": "lot-walking",
+     "start_s": 0.67,
+     "end_s": 2.67,
+     "relevance": 0.5998,
+     "samples": 2
+    },
+    {
+     "video": "lot-walking",
+     "start_s": 44.67,
+     "end_s": 45.67,
+     "relevance": 0.5956,
+     "samples": 1
+    },
+    {
+     "video": "lot-whitecar",
+     "start_s": 25.68,
+     "end_s": 26.68,
+     "relevance": 0.592,
+     "samples": 1
+    }
+   ],
+   "first_hit_rank": 1,
+   "hit@1": true,
+   "hit@5": true,
+   "hit@10": true,
+   "precision@5": 1.0,
+   "precision@10": 1.0,
+   "start_error_s": 5.667,
+   "end_error_s": 38.253
+  },
+  {
+   "id": "f003",
+   "query": "스키장 슬로프",
+   "language": "ko",
+   "category": "scene",
+   "negative": false,
+   "ambiguous": false,
+   "pair": null,
+   "candidate_fraction": 0.3,
+   "wall_ms": 82.4,
+   "stats": {
+    "embed_ms": 77,
+    "scan_ms": 1,
+    "total_ms": 80,
+    "coverage_ratio": 1,
+    "samples_scanned": 152
+   },
+   "top_relevance": 0.6155,
+   "results": 13,
+   "top": [
+    {
+     "video": "skiing",
+     "start_s": 0.68,
+     "end_s": 14.12,
+     "relevance": 0.6155,
+     "samples": 14
+    },
+    {
+     "video": "lot-walking",
+     "start_s": 14.67,
+     "end_s": 15.67,
+     "relevance": 0.4099,
+     "samples": 1
+    },
+    {
+     "video": "lot-walking",
+     "start_s": 42.67,
+     "end_s": 45.67,
+     "relevance": 0.4086,
+     "samples": 3
+    },
+    {
+     "video": "lot-walking",
+     "start_s": 17.67,
+     "end_s": 19.67,
+     "relevance": 0.3895,
+     "samples": 2
+    },
+    {
+     "video": "lot-whitecar",
+     "start_s": 21.68,
+     "end_s": 30.16,
+     "relevance": 0.3882,
+     "samples": 5
+    }
+   ],
+   "first_hit_rank": 1,
+   "hit@1": true,
+   "hit@5": true,
+   "hit@10": true,
+   "precision@5": 0.2,
+   "precision@10": 0.1,
+   "start_error_s": 0.68,
+   "end_error_s": 0.0
+  },
+  {
+   "id": "f004",
+   "query": "a town square with a fountain in the middle",
+   "language": "en",
+   "category": "scene",
+   "negative": false,
+   "ambiguous": false,
+   "pair": null,
+   "candidate_fraction": 0.3,
+   "wall_ms": 99.0,
+   "stats": {
+    "embed_ms": 94,
+    "scan_ms": 1,
+    "total_ms": 97,
+    "coverage_ratio": 1,
+    "samples_scanned": 152
+   },
+   "top_relevance": 0.6624,
+   "results": 18,
+   "top": [
+    {
+     "video": "market-square",
+     "start_s": 0.72,
+     "end_s": 7.9,
+     "relevance": 0.6624,
+     "samples": 8
+    },
+    {
+     "video": "people-walking",
+     "start_s": 0.68,
+     "end_s": 13.64,
+     "relevance": 0.3248,
+     "samples": 13
+    },
+    {
+     "video": "lot-walking",
+     "start_s": 44.67,
+     "end_s": 45.67,
+     "relevance": 0.3185,
+     "samples": 1
+    },
+    {
+     "video": "lot-whitecar",
+     "start_s": 12.64,
+     "end_s": 15.64,
+     "relevance": 0.3027,
+     "samples": 2
+    },
+    {
+     "video": "lot-walking",
+     "start_s": 8.67,
+     "end_s": 11.67,
+     "relevance": 0.2986,
+     "samples": 3
+    }
+   ],
+   "first_hit_rank": 1,
+   "hit@1": true,
+   "hit@5": true,
+   "hit@10": true,
+   "precision@5": 0.2,
+   "precision@10": 0.1,
+   "start_error_s": 0.717,
+   "end_error_s": 0.001
+  },
+  {
+   "id": "f005",
+   "query": "흑백으로 촬영된 영상",
+   "language": "ko",
+   "category": "scene",
+   "negative": false,
+   "ambiguous": false,
+   "pair": null,
+   "candidate_fraction": 0.3,
+   "wall_ms": 106.1,
+   "stats": {
+    "embed_ms": 102,
+    "scan_ms": 1,
+    "total_ms": 105,
+    "coverage_ratio": 1,
+    "samples_scanned": 152
+   },
+   "top_relevance": 0.5079,
+   "results": 12,
+   "top": [
+    {
+     "video": "lot-whitecar",
+     "start_s": 18.64,
+     "end_s": 30.16,
+     "relevance": 0.5079,
+     "samples": 10
+    },
+    {
+     "video": "lot-whitecar",
+     "start_s": 8.64,
+     "end_s": 15.64,
+     "relevance": 0.4857,
+     "samples": 7
+    },
+    {
+     "video": "lot-whitecar",
+     "start_s": 0.64,
+     "end_s": 5.64,
+     "relevance": 0.4744,
+     "samples": 5
+    },
+    {
+     "video": "lot-walking",
+     "start_s": 1.67,
+     "end_s": 6.67,
+     "relevance": 0.4376,
+     "samples": 5
+    },
+    {
+     "video": "lot-walking",
+     "start_s": 43.67,
+     "end_s": 45.67,
+     "relevance": 0.4184,
+     "samples": 2
+    }
+   ],
+   "first_hit_rank": 6,
+   "hit@1": false,
+   "hit@5": false,
+   "hit@10": true,
+   "precision@5": 0.0,
+   "precision@10": 0.2,
+   "start_error_s": 11.68,
+   "end_error_s": 0.96
+  },
+  {
+   "id": "f006",
+   "query": "a car",
+   "language": "en",
+   "category": "presence",
+   "negative": false,
+   "ambiguous": false,
+   "pair": null,
+   "candidate_fraction": 0.3,
+   "wall_ms": 85.9,
+   "stats": {
+    "embed_ms": 82,
+    "scan_ms": 1,
+    "total_ms": 84,
+    "coverage_ratio": 1,
+    "samples_scanned": 152
+   },
+   "top_relevance": 0.5739,
+   "results": 9,
+   "top": [
+    {
+     "video": "lot-whitecar",
+     "start_s": 7.68,
+     "end_s": 30.16,
+     "relevance": 0.5739,
+     "samples": 22
+    },
+    {
+     "video": "lot-walking",
+     "start_s": 43.67,
+     "end_s": 51.67,
+     "relevance": 0.5595,
+     "samples": 7
+    },
+    {
+     "video": "lot-whitecar",
+     "start_s": 0.64,
+     "end_s": 5.64,
+     "relevance": 0.5536,
+     "samples": 5
+    },
+    {
+     "video": "lot-walking",
+     "start_s": 17.67,
+     "end_s": 19.67,
+     "relevance": 0.5245,
+     "samples": 2
+    },
+    {
+     "video": "lot-walking",
+     "start_s": 14.67,
+     "end_s": 15.67,
+     "relevance": 0.5185,
+     "samples": 1
+    }
+   ],
+   "first_hit_rank": 1,
+   "hit@1": true,
+   "hit@5": true,
+   "hit@10": true,
+   "precision@5": 1.0,
+   "precision@10": 0.5,
+   "start_error_s": 6.82,
+   "end_error_s": 11.16
+  },
+  {
+   "id": "f007",
+   "query": "자전거",
+   "language": "ko",
+   "category": "presence",
+   "negative": false,
+   "ambiguous": false,
+   "pair": null,
+   "candidate_fraction": 0.3,
+   "wall_ms": 78.4,
+   "stats": {
+    "embed_ms": 75,
+    "scan_ms": 1,
+    "total_ms": 77,
+    "coverage_ratio": 1,
+    "samples_scanned": 152
+   },
+   "top_relevance": 0.519,
+   "results": 10,
+   "top": [
+    {
+     "video": "lot-walking",
+     "start_s": 42.67,
+     "end_s": 50.67,
+     "relevance": 0.519,
+     "samples": 8
+    },
+    {
+     "video": "lot-walking",
+     "start_s": 24.67,
+     "end_s": 31.67,
+     "relevance": 0.5052,
+     "samples": 7
+    },
+    {
+     "video": "lot-whitecar",
+     "start_s": 8.64,
+     "end_s": 30.16,
+     "relevance": 0.4364,
+     "samples": 18
+    },
+    {
+     "video": "lot-whitecar",
+     "start_s": 0.64,
+     "end_s": 5.64,
+     "relevance": 0.3847,
+     "samples": 5
+    },
+    {
+     "video": "lot-walking",
+     "start_s": 18.67,
+     "end_s": 19.67,
+     "relevance": 0.3673,
+     "samples": 1
+    }
+   ],
+   "first_hit_rank": 1,
+   "hit@1": true,
+   "hit@5": true,
+   "hit@10": true,
+   "precision@5": 0.4,
+   "precision@10": 0.2,
+   "start_error_s": 1.833,
+   "end_error_s": 0.667
+  },
+  {
+   "id": "f008",
+   "query": "a flip chart standing next to a window",
+   "language": "en",
+   "category": "presence",
+   "negative": false,
+   "ambiguous": false,
+   "pair": null,
+   "candidate_fraction": 0.3,
+   "wall_ms": 98.7,
+   "stats": {
+    "embed_ms": 95,
+    "scan_ms": 1,
+    "total_ms": 97,
+    "coverage_ratio": 1,
+    "samples_scanned": 152
+   },
+   "top_relevance": 0.4825,
+   "results": 8,
+   "top": [
+    {
+     "video": "classroom",
+     "start_s": 0.7,
+     "end_s": 32.8,
+     "relevance": 0.4825,
+     "samples": 33
+    },
+    {
+     "video": "lot-whitecar",
+     "start_s": 28.64,
+     "end_s": 30.16,
+     "relevance": 0.295,
+     "samples": 2
+    },
+    {
+     "video": "lot-whitecar",
+     "start_s": 19.68,
+     "end_s": 20.68,
+     "relevance": 0.2791,
+     "samples": 1
+    },
+    {
+     "video": "lot-whitecar",
+     "start_s": 8.64,
+     "end_s": 13.64,
+     "relevance": 0.2731,
+     "samples": 4
+    },
+    {
+     "video": "lot-walking",
+     "start_s": 14.67,
+     "end_s": 15.67,
+     "relevance": 0.2633,
+     "samples": 1
+    }
+   ],
+   "first_hit_rank": 1,
+   "hit@1": true,
+   "hit@5": true,
+   "hit@10": true,
+   "precision@5": 0.2,
+   "precision@10": 0.1,
+   "start_error_s": 0.7,
+   "end_error_s": 0.0
+  },
+  {
+   "id": "f009",
+   "query": "스키 리프트",
+   "language": "ko",
+   "category": "presence",
+   "negative": false,
+   "ambiguous": true,
+   "pair": null,
+   "candidate_fraction": 0.3,
+   "wall_ms": 83.0,
+   "stats": {
+    "embed_ms": 78,
+    "scan_ms": 1,
+    "total_ms": 81,
+    "coverage_ratio": 1,
+    "samples_scanned": 152
+   },
+   "top_relevance": 0.5393,
+   "results": 17,
+   "top": [
+    {
+     "video": "skiing",
+     "start_s": 0.68,
+     "end_s": 14.12,
+     "relevance": 0.5393,
+     "samples": 14
+    },
+    {
+     "video": "lot-whitecar",
+     "start_s": 21.68,
+     "end_s": 30.16,
+     "relevance": 0.3807,
+     "samples": 6
+    },
+    {
+     "video": "lot-walking",
+     "start_s": 42.67,
+     "end_s": 45.67,
+     "relevance": 0.3636,
+     "samples": 3
+    },
+    {
+     "video": "lot-walking",
+     "start_s": 14.67,
+     "end_s": 15.67,
+     "relevance": 0.3585,
+     "samples": 1
+    },
+    {
+     "video": "lot-walking",
+     "start_s": 1.67,
+     "end_s": 4.67,
+     "relevance": 0.3551,
+     "samples": 2
+    }
+   ],
+   "first_hit_rank": 1,
+   "hit@1": true,
+   "hit@5": true,
+   "hit@10": true,
+   "precision@5": 0.2,
+   "precision@10": 0.1,
+   "start_error_s": 10.32,
+   "end_error_s": 0.0
+  },
+  {
+   "id": "f010",
+   "query": "여러 사람이 걸어가는 장면",
+   "language": "ko",
+   "category": "count",
+   "negative": false,
+   "ambiguous": false,
+   "pair": null,
+   "candidate_fraction": 0.3,
+   "wall_ms": 97.5,
+   "stats": {
+    "embed_ms": 93,
+    "scan_ms": 1,
+    "total_ms": 96,
+    "coverage_ratio": 1,
+    "samples_scanned": 152
+   },
+   "top_relevance": 0.5757,
+   "results": 11,
+   "top": [
+    {
+     "video": "people-walking",
+     "start_s": 0.68,
+     "end_s": 13.64,
+     "relevance": 0.5757,
+     "samples": 13
+    },
+    {
+     "video": "lot-walking",
+     "start_s": 44.67,
+     "end_s": 45.67,
+     "relevance": 0.4745,
+     "samples": 1
+    },
+    {
+     "video": "lot-walking",
+     "start_s": 1.67,
+     "end_s": 7.67,
+     "relevance": 0.4294,
+     "samples": 6
+    },
+    {
+     "video": "market-square",
+     "start_s": 0.72,
+     "end_s": 7.9,
+     "relevance": 0.423,
+     "samples": 8
+    },
+    {
+     "video": "lot-whitecar",
+     "start_s": 29.68,
+     "end_s": 30.16,
+     "relevance": 0.4162,
+     "samples": 1
+    }
+   ],
+   "first_hit_rank": 1,
+   "hit@1": true,
+   "hit@5": true,
+   "hit@10": true,
+   "precision@5": 0.4,
+   "precision@10": 0.2,
+   "start_error_s": 0.68,
+   "end_error_s": 0.0
+  },
+  {
+   "id": "f011",
+   "query": "four people sitting in a room",
+   "language": "en",
+   "category": "count",
+   "negative": false,
+   "ambiguous": false,
+   "pair": null,
+   "candidate_fraction": 0.3,
+   "wall_ms": 84.2,
+   "stats": {
+    "embed_ms": 80,
+    "scan_ms": 1,
+    "total_ms": 83,
+    "coverage_ratio": 1,
+    "samples_scanned": 152
+   },
+   "top_relevance": 0.5562,
+   "results": 6,
+   "top": [
+    {
+     "video": "classroom",
+     "start_s": 0.7,
+     "end_s": 32.8,
+     "relevance": 0.5562,
+     "samples": 33
+    },
+    {
+     "video": "lot-whitecar",
+     "start_s": 28.64,
+     "end_s": 30.16,
+     "relevance": 0.3228,
+     "samples": 2
+    },
+    {
+     "video": "lot-whitecar",
+     "start_s": 8.64,
+     "end_s": 12.68,
+     "relevance": 0.3191,
+     "samples": 4
+    },
+    {
+     "video": "people-walking",
+     "start_s": 4.68,
+     "end_s": 6.68,
+     "relevance": 0.319,
+     "samples": 2
+    },
+    {
+     "video": "people-walking",
+     "start_s": 8.68,
+     "end_s": 13.64,
+     "relevance": 0.3187,
+     "samples": 4
+    }
+   ],
+   "first_hit_rank": 1,
+   "hit@1": true,
+   "hit@5": true,
+   "hit@10": true,
+   "precision@5": 0.2,
+   "precision@10": 0.1,
+   "start_error_s": 26.8,
+   "end_error_s": 0.0
+  },
+  {
+   "id": "f012",
+   "query": "차 두 대가 서로 반대 방향으로 지나가는 장면",
+   "language": "ko",
+   "category": "count",
+   "negative": false,
+   "ambiguous": false,
+   "pair": null,
+   "candidate_fraction": 0.3,
+   "wall_ms": 101.8,
+   "stats": {
+    "embed_ms": 97,
+    "scan_ms": 1,
+    "total_ms": 100,
+    "coverage_ratio": 1,
+    "samples_scanned": 152
+   },
+   "top_relevance": 0.5404,
+   "results": 10,
+   "top": [
+    {
+     "video": "lot-whitecar",
+     "start_s": 8.64,
+     "end_s": 30.16,
+     "relevance": 0.5404,
+     "samples": 22
+    },
+    {
+     "video": "lot-walking",
+     "start_s": 44.67,
+     "end_s": 51.67,
+     "relevance": 0.4307,
+     "samples": 6
+    },
+    {
+     "video": "lot-whitecar",
+     "start_s": 0.64,
+     "end_s": 5.64,
+     "relevance": 0.4306,
+     "samples": 5
+    },
+    {
+     "video": "lot-walking",
+     "start_s": 13.67,
+     "end_s": 15.67,
+     "relevance": 0.4174,
+     "samples": 2
+    },
+    {
+     "video": "lot-walking",
+     "start_s": 18.67,
+     "end_s": 21.67,
+     "relevance": 0.3945,
+     "samples": 2
+    }
+   ],
+   "first_hit_rank": 1,
+   "hit@1": true,
+   "hit@5": true,
+   "hit@10": true,
+   "precision@5": 0.2,
+   "precision@10": 0.1,
+   "start_error_s": 6.36,
+   "end_error_s": 11.66
+  },
+  {
+   "id": "f013",
+   "query": "텅 빈 주차장",
+   "language": "ko",
+   "category": "count",
+   "negative": false,
+   "ambiguous": false,
+   "pair": null,
+   "candidate_fraction": 0.3,
+   "wall_ms": 79.0,
+   "stats": {
+    "embed_ms": 75,
+    "scan_ms": 1,
+    "total_ms": 78,
+    "coverage_ratio": 1,
+    "samples_scanned": 152
+   },
+   "top_relevance": 0.6578,
+   "results": 8,
+   "top": [
+    {
+     "video": "lot-walking",
+     "start_s": 29.67,
+     "end_s": 45.67,
+     "relevance": 0.6578,
+     "samples": 14
+    },
+    {
+     "video": "lot-walking",
+     "start_s": 0.67,
+     "end_s": 15.67,
+     "relevance": 0.6561,
+     "samples": 14
+    },
+    {
+     "video": "lot-walking",
+     "start_s": 49.67,
+     "end_s": 53.92,
+     "relevance": 0.6473,
+     "samples": 5
+    },
+    {
+     "video": "lot-walking",
+     "start_s": 18.67,
+     "end_s": 26.67,
+     "relevance": 0.615,
+     "samples": 8
+    },
+    {
+     "video": "lot-whitecar",
+     "start_s": 12.64,
+     "end_s": 14.68,
+     "relevance": 0.5631,
+     "samples": 2
+    }
+   ],
+   "first_hit_rank": 1,
+   "hit@1": true,
+   "hit@5": true,
+   "hit@10": true,
+   "precision@5": 1.0,
+   "precision@10": 0.7,
+   "start_error_s": 0.167,
+   "end_error_s": 5.667
+  },
+  {
+   "id": "f014",
+   "query": "흰색 자동차",
+   "language": "ko",
+   "category": "attribute",
+   "negative": false,
+   "ambiguous": false,
+   "pair": null,
+   "candidate_fraction": 0.3,
+   "wall_ms": 78.7,
+   "stats": {
+    "embed_ms": 75,
+    "scan_ms": 1,
+    "total_ms": 77,
+    "coverage_ratio": 1,
+    "samples_scanned": 152
+   },
+   "top_relevance": 0.606,
+   "results": 9,
+   "top": [
+    {
+     "video": "lot-whitecar",
+     "start_s": 0.64,
+     "end_s": 30.16,
+     "relevance": 0.606,
+     "samples": 28
+    },
+    {
+     "video": "lot-walking",
+     "start_s": 14.67,
+     "end_s": 15.67,
+     "relevance": 0.5687,
+     "samples": 1
+    },
+    {
+     "video": "lot-walking",
+     "start_s": 17.67,
+     "end_s": 19.67,
+     "relevance": 0.5567,
+     "samples": 2
+    },
+    {
+     "video": "lot-walking",
+     "start_s": 43.67,
+     "end_s": 49.67,
+     "relevance": 0.5315,
+     "samples": 6
+    },
+    {
+     "video": "lot-walking",
+     "start_s": 26.67,
+     "end_s": 31.67,
+     "relevance": 0.4631,
+     "samples": 5
+    }
+   ],
+   "first_hit_rank": 1,
+   "hit@1": true,
+   "hit@5": true,
+   "hit@10": true,
+   "precision@5": 0.6,
+   "precision@10": 0.3,
+   "start_error_s": 3.86,
+   "end_error_s": 21.66
+  },
+  {
+   "id": "f015",
+   "query": "a red car",
+   "language": "en",
+   "category": "attribute",
+   "negative": false,
+   "ambiguous": false,
+   "pair": null,
+   "candidate_fraction": 0.3,
+   "wall_ms": 79.8,
+   "stats": {
+    "embed_ms": 76,
+    "scan_ms": 1,
+    "total_ms": 78,
+    "coverage_ratio": 1,
+    "samples_scanned": 152
+   },
+   "top_relevance": 0.6448,
+   "results": 9,
+   "top": [
+    {
+     "video": "lot-whitecar",
+     "start_s": 7.68,
+     "end_s": 30.16,
+     "relevance": 0.6448,
+     "samples": 23
+    },
+    {
+     "video": "lot-walking",
+     "start_s": 43.67,
+     "end_s": 49.67,
+     "relevance": 0.5189,
+     "samples": 6
+    },
+    {
+     "video": "lot-walking",
+     "start_s": 17.67,
+     "end_s": 19.67,
+     "relevance": 0.5067,
+     "samples": 2
+    },
+    {
+     "video": "lot-whitecar",
+     "start_s": 0.64,
+     "end_s": 5.64,
+     "relevance": 0.5036,
+     "samples": 5
+    },
+    {
+     "video": "lot-walking",
+     "start_s": 14.67,
+     "end_s": 15.67,
+     "relevance": 0.5009,
+     "samples": 1
+    }
+   ],
+   "first_hit_rank": 1,
+   "hit@1": true,
+   "hit@5": true,
+   "hit@10": true,
+   "precision@5": 0.2,
+   "precision@10": 0.1,
+   "start_error_s": 7.32,
+   "end_error_s": 11.16
+  },
+  {
+   "id": "f016",
+   "query": "a person in dark clothes walking across a parking lot",
+   "language": "en",
+   "category": "attribute",
+   "negative": false,
+   "ambiguous": false,
+   "pair": null,
+   "candidate_fraction": 0.3,
+   "wall_ms": 105.9,
+   "stats": {
+    "embed_ms": 102,
+    "scan_ms": 1,
+    "total_ms": 104,
+    "coverage_ratio": 1,
+    "samples_scanned": 152
+   },
+   "top_relevance": 0.7436,
+   "results": 8,
+   "top": [
+    {
+     "video": "lot-walking",
+     "start_s": 0.67,
+     "end_s": 9.67,
+     "relevance": 0.7436,
+     "samples": 8
+    },
+    {
+     "video": "lot-walking",
+     "start_s": 23.67,
+     "end_s": 45.67,
+     "relevance": 0.708,
+     "samples": 18
+    },
+    {
+     "video": "lot-whitecar",
+     "start_s": 20.64,
+     "end_s": 25.64,
+     "relevance": 0.6389,
+     "samples": 5
+    },
+    {
+     "video": "lot-whitecar",
+     "start_s": 8.64,
+     "end_s": 14.68,
+     "relevance": 0.6318,
+     "samples": 6
+    },
+    {
+     "video": "lot-whitecar",
+     "start_s": 28.64,
+     "end_s": 30.16,
+     "relevance": 0.6212,
+     "samples": 2
+    }
+   ],
+   "first_hit_rank": 1,
+   "hit@1": true,
+   "hit@5": true,
+   "hit@10": true,
+   "precision@5": 0.2,
+   "precision@10": 0.1,
+   "start_error_s": 0.333,
+   "end_error_s": 2.167
+  },
+  {
+   "id": "f017",
+   "query": "노란 재킷을 입은 사람",
+   "language": "ko",
+   "category": "attribute",
+   "negative": false,
+   "ambiguous": false,
+   "pair": null,
+   "candidate_fraction": 0.3,
+   "wall_ms": 106.9,
+   "stats": {
+    "embed_ms": 102,
+    "scan_ms": 1,
+    "total_ms": 105,
+    "coverage_ratio": 1,
+    "samples_scanned": 152
+   },
+   "top_relevance": 0.4185,
+   "results": 16,
+   "top": [
+    {
+     "video": "lot-walking",
+     "start_s": 1.67,
+     "end_s": 7.67,
+     "relevance": 0.4185,
+     "samples": 6
+    },
+    {
+     "video": "lot-walking",
+     "start_s": 40.67,
+     "end_s": 45.67,
+     "relevance": 0.4151,
+     "samples": 5
+    },
+    {
+     "video": "lot-whitecar",
+     "start_s": 18.64,
+     "end_s": 30.16,
+     "relevance": 0.4058,
+     "samples": 9
+    },
+    {
+     "video": "lot-walking",
+     "start_s": 47.67,
+     "end_s": 49.67,
+     "relevance": 0.3689,
+     "samples": 2
+    },
+    {
+     "video": "lot-whitecar",
+     "start_s": 8.64,
+     "end_s": 15.64,
+     "relevance": 0.3637,
+     "samples": 7
+    }
+   ],
+   "first_hit_rank": null,
+   "hit@1": false,
+   "hit@5": false,
+   "hit@10": false,
+   "precision@5": 0.0,
+   "precision@10": 0.0
+  },
+  {
+   "id": "f018",
+   "query": "a skier wearing a turquoise jacket and a red backpack",
+   "language": "en",
+   "category": "attribute",
+   "negative": false,
+   "ambiguous": false,
+   "pair": null,
+   "candidate_fraction": 0.3,
+   "wall_ms": 101.0,
+   "stats": {
+    "embed_ms": 97,
+    "scan_ms": 1,
+    "total_ms": 99,
+    "coverage_ratio": 1,
+    "samples_scanned": 152
+   },
+   "top_relevance": 0.6679,
+   "results": 9,
+   "top": [
+    {
+     "video": "skiing",
+     "start_s": 0.68,
+     "end_s": 14.12,
+     "relevance": 0.6679,
+     "samples": 14
+    },
+    {
+     "video": "lot-walking",
+     "start_s": 41.67,
+     "end_s": 49.67,
+     "relevance": 0.3698,
+     "samples": 8
+    },
+    {
+     "video": "lot-walking",
+     "start_s": 14.67,
+     "end_s": 19.67,
+     "relevance": 0.3308,
+     "samples": 5
+    },
+    {
+     "video": "lot-walking",
+     "start_s": 1.67,
+     "end_s": 7.67,
+     "relevance": 0.3282,
+     "samples": 6
+    },
+    {
+     "video": "lot-whitecar",
+     "start_s": 14.64,
+     "end_s": 19.64,
+     "relevance": 0.3241,
+     "samples": 4
+    }
+   ],
+   "first_hit_rank": 1,
+   "hit@1": true,
+   "hit@5": true,
+   "hit@10": true,
+   "precision@5": 0.2,
+   "precision@10": 0.1,
+   "start_error_s": 0.68,
+   "end_error_s": 0.0
+  },
+  {
+   "id": "f019",
+   "query": "은색 자동차",
+   "language": "ko",
+   "category": "attribute",
+   "negative": false,
+   "ambiguous": true,
+   "pair": null,
+   "candidate_fraction": 0.3,
+   "wall_ms": 78.8,
+   "stats": {
+    "embed_ms": 75,
+    "scan_ms": 1,
+    "total_ms": 77,
+    "coverage_ratio": 1,
+    "samples_scanned": 152
+   },
+   "top_relevance": 0.5594,
+   "results": 11,
+   "top": [
+    {
+     "video": "lot-whitecar",
+     "start_s": 7.68,
+     "end_s": 30.16,
+     "relevance": 0.5594,
+     "samples": 23
+    },
+    {
+     "video": "lot-walking",
+     "start_s": 43.67,
+     "end_s": 49.67,
+     "relevance": 0.5475,
+     "samples": 6
+    },
+    {
+     "video": "lot-walking",
+     "start_s": 14.67,
+     "end_s": 15.67,
+     "relevance": 0.5292,
+     "samples": 1
+    },
+    {
+     "video": "lot-walking",
+     "start_s": 17.67,
+     "end_s": 19.67,
+     "relevance": 0.5144,
+     "samples": 2
+    },
+    {
+     "video": "lot-whitecar",
+     "start_s": 0.64,
+     "end_s": 5.64,
+     "relevance": 0.5048,
+     "samples": 5
+    }
+   ],
+   "first_hit_rank": 1,
+   "hit@1": true,
+   "hit@5": true,
+   "hit@10": true,
+   "precision@5": 0.4,
+   "precision@10": 0.2,
+   "start_error_s": 6.82,
+   "end_error_s": 11.66
+  },
+  {
+   "id": "f020",
+   "query": "a white SUV",
+   "language": "en",
+   "category": "attribute",
+   "negative": false,
+   "ambiguous": false,
+   "pair": null,
+   "candidate_fraction": 0.3,
+   "wall_ms": 74.2,
+   "stats": {
+    "embed_ms": 71,
+    "scan_ms": 1,
+    "total_ms": 73,
+    "coverage_ratio": 1,
+    "samples_scanned": 152
+   },
+   "top_relevance": 0.5718,
+   "results": 8,
+   "top": [
+    {
+     "video": "lot-walking",
+     "start_s": 14.67,
+     "end_s": 19.67,
+     "relevance": 0.5718,
+     "samples": 5
+    },
+    {
+     "video": "lot-whitecar",
+     "start_s": 0.64,
+     "end_s": 30.16,
+     "relevance": 0.5144,
+     "samples": 28
+    },
+    {
+     "video": "lot-walking",
+     "start_s": 44.67,
+     "end_s": 49.67,
+     "relevance": 0.4758,
+     "samples": 5
+    },
+    {
+     "video": "lot-walking",
+     "start_s": 1.67,
+     "end_s": 2.67,
+     "relevance": 0.399,
+     "samples": 1
+    },
+    {
+     "video": "lot-walking",
+     "start_s": 38.67,
+     "end_s": 40.67,
+     "relevance": 0.3927,
+     "samples": 2
+    }
+   ],
+   "first_hit_rank": 1,
+   "hit@1": true,
+   "hit@5": true,
+   "hit@10": true,
+   "precision@5": 0.2,
+   "precision@10": 0.1,
+   "start_error_s": 0.667,
+   "end_error_s": 0.167
+  },
+  {
+   "id": "f021",
+   "query": "a student raising a hand",
+   "language": "en",
+   "category": "action",
+   "negative": false,
+   "ambiguous": false,
+   "pair": null,
+   "candidate_fraction": 0.3,
+   "wall_ms": 75.8,
+   "stats": {
+    "embed_ms": 72,
+    "scan_ms": 1,
+    "total_ms": 74,
+    "coverage_ratio": 1,
+    "samples_scanned": 152
+   },
+   "top_relevance": 0.4976,
+   "results": 8,
+   "top": [
+    {
+     "video": "classroom",
+     "start_s": 8.7,
+     "end_s": 32.8,
+     "relevance": 0.4976,
+     "samples": 21
+    },
+    {
+     "video": "lot-walking",
+     "start_s": 43.67,
+     "end_s": 45.67,
+     "relevance": 0.3888,
+     "samples": 2
+    },
+    {
+     "video": "lot-whitecar",
+     "start_s": 28.64,
+     "end_s": 30.16,
+     "relevance": 0.373,
+     "samples": 2
+    },
+    {
+     "video": "lot-whitecar",
+     "start_s": 8.64,
+     "end_s": 14.68,
+     "relevance": 0.3536,
+     "samples": 6
+    },
+    {
+     "video": "lot-whitecar",
+     "start_s": 18.64,
+     "end_s": 25.64,
+     "relevance": 0.3361,
+     "samples": 7
+    }
+   ],
+   "first_hit_rank": 1,
+   "hit@1": true,
+   "hit@5": true,
+   "hit@10": true,
+   "precision@5": 0.2,
+   "precision@10": 0.1,
+   "start_error_s": 8.8,
+   "end_error_s": 12.8
+  },
+  {
+   "id": "f022",
+   "query": "스키를 타고 내려가는 사람",
+   "language": "ko",
+   "category": "action",
+   "negative": false,
+   "ambiguous": false,
+   "pair": null,
+   "candidate_fraction": 0.3,
+   "wall_ms": 100.1,
+   "stats": {
+    "embed_ms": 96,
+    "scan_ms": 1,
+    "total_ms": 99,
+    "coverage_ratio": 1,
+    "samples_scanned": 152
+   },
+   "top_relevance": 0.6266,
+   "results": 12,
+   "top": [
+    {
+     "video": "skiing",
+     "start_s": 0.68,
+     "end_s": 14.12,
+     "relevance": 0.6266,
+     "samples": 14
+    },
+    {
+     "video": "lot-walking",
+     "start_s": 41.67,
+     "end_s": 45.67,
+     "relevance": 0.4128,
+     "samples": 4
+    },
+    {
+     "video": "lot-whitecar",
+     "start_s": 20.64,
+     "end_s": 30.16,
+     "relevance": 0.4088,
+     "samples": 8
+    },
+    {
+     "video": "lot-walking",
+     "start_s": 1.67,
+     "end_s": 6.67,
+     "relevance": 0.403,
+     "samples": 5
+    },
+    {
+     "video": "lot-whitecar",
+     "start_s": 3.68,
+     "end_s": 5.64,
+     "relevance": 0.3727,
+     "samples": 2
+    }
+   ],
+   "first_hit_rank": 1,
+   "hit@1": true,
+   "hit@5": true,
+   "hit@10": true,
+   "precision@5": 0.2,
+   "precision@10": 0.1,
+   "start_error_s": 0.68,
+   "end_error_s": 0.0
+  },
+  {
+   "id": "f023",
+   "query": "someone riding a bicycle across a parking lot",
+   "language": "en",
+   "category": "action",
+   "negative": false,
+   "ambiguous": false,
+   "pair": null,
+   "candidate_fraction": 0.3,
+   "wall_ms": 98.4,
+   "stats": {
+    "embed_ms": 95,
+    "scan_ms": 1,
+    "total_ms": 97,
+    "coverage_ratio": 1,
+    "samples_scanned": 152
+   },
+   "top_relevance": 0.747,
+   "results": 8,
+   "top": [
+    {
+     "video": "lot-walking",
+     "start_s": 23.67,
+     "end_s": 53.92,
+     "relevance": 0.747,
+     "samples": 30
+    },
+    {
+     "video": "lot-walking",
+     "start_s": 0.67,
+     "end_s": 9.67,
+     "relevance": 0.5762,
+     "samples": 6
+    },
+    {
+     "video": "lot-whitecar",
+     "start_s": 29.68,
+     "end_s": 30.16,
+     "relevance": 0.5565,
+     "samples": 1
+    },
+    {
+     "video": "lot-whitecar",
+     "start_s": 12.64,
+     "end_s": 14.68,
+     "relevance": 0.5513,
+     "samples": 2
+    },
+    {
+     "video": "lot-walking",
+     "start_s": 13.67,
+     "end_s": 15.67,
+     "relevance": 0.5506,
+     "samples": 2
+    }
+   ],
+   "first_hit_rank": 1,
+   "hit@1": true,
+   "hit@5": true,
+   "hit@10": true,
+   "precision@5": 0.2,
+   "precision@10": 0.1,
+   "start_error_s": 20.833,
+   "end_error_s": 3.916
+  },
+  {
+   "id": "f024",
+   "query": "창가 앞자리에 앉아 있던 남자가 자리에서 일어나는 장면",
+   "language": "ko",
+   "category": "action",
+   "negative": false,
+   "ambiguous": false,
+   "pair": "classroom-front-stand-sit",
+   "candidate_fraction": 0.3,
+   "wall_ms": 126.7,
+   "stats": {
+    "embed_ms": 122,
+    "scan_ms": 1,
+    "total_ms": 125,
+    "coverage_ratio": 1,
+    "samples_scanned": 152
+   },
+   "top_relevance": 0.3414,
+   "results": 9,
+   "top": [
+    {
+     "video": "lot-whitecar",
+     "start_s": 17.68,
+     "end_s": 30.16,
+     "relevance": 0.3414,
+     "samples": 10
+    },
+    {
+     "video": "lot-walking",
+     "start_s": 43.67,
+     "end_s": 45.67,
+     "relevance": 0.3308,
+     "samples": 2
+    },
+    {
+     "video": "classroom",
+     "start_s": 3.7,
+     "end_s": 32.8,
+     "relevance": 0.3302,
+     "samples": 28
+    },
+    {
+     "video": "lot-walking",
+     "start_s": 1.67,
+     "end_s": 2.67,
+     "relevance": 0.3133,
+     "samples": 1
+    },
+    {
+     "video": "lot-whitecar",
+     "start_s": 8.64,
+     "end_s": 9.64,
+     "relevance": 0.3034,
+     "samples": 1
+    }
+   ],
+   "first_hit_rank": 3,
+   "hit@1": false,
+   "hit@5": true,
+   "hit@10": true,
+   "precision@5": 0.2,
+   "precision@10": 0.1,
+   "start_error_s": 0.7,
+   "end_error_s": 27.8
+  },
+  {
+   "id": "f025",
+   "query": "the man by the window sits back down at his desk",
+   "language": "en",
+   "category": "action",
+   "negative": false,
+   "ambiguous": false,
+   "pair": "classroom-front-stand-sit",
+   "candidate_fraction": 0.3,
+   "wall_ms": 112.6,
+   "stats": {
+    "embed_ms": 108,
+    "scan_ms": 1,
+    "total_ms": 111,
+    "coverage_ratio": 1,
+    "samples_scanned": 152
+   },
+   "top_relevance": 0.4223,
+   "results": 9,
+   "top": [
+    {
+     "video": "classroom",
+     "start_s": 0.7,
+     "end_s": 32.8,
+     "relevance": 0.4223,
+     "samples": 33
+    },
+    {
+     "video": "lot-whitecar",
+     "start_s": 28.64,
+     "end_s": 30.16,
+     "relevance": 0.3058,
+     "samples": 2
+    },
+    {
+     "video": "lot-whitecar",
+     "start_s": 17.68,
+     "end_s": 21.64,
+     "relevance": 0.2739,
+     "samples": 3
+    },
+    {
+     "video": "lot-whitecar",
+     "start_s": 8.64,
+     "end_s": 9.64,
+     "relevance": 0.2687,
+     "samples": 1
+    },
+    {
+     "video": "lot-walking",
+     "start_s": 43.67,
+     "end_s": 45.67,
+     "relevance": 0.2629,
+     "samples": 2
+    }
+   ],
+   "first_hit_rank": 1,
+   "hit@1": true,
+   "hit@5": true,
+   "hit@10": true,
+   "precision@5": 0.2,
+   "precision@10": 0.1,
+   "start_error_s": 14.3,
+   "end_error_s": 16.3
+  },
+  {
+   "id": "f026",
+   "query": "a car entering the parking lot",
+   "language": "en",
+   "category": "action",
+   "negative": false,
+   "ambiguous": true,
+   "pair": "car-enter-leave",
+   "candidate_fraction": 0.3,
+   "wall_ms": 82.0,
+   "stats": {
+    "embed_ms": 78,
+    "scan_ms": 1,
+    "total_ms": 80,
+    "coverage_ratio": 1,
+    "samples_scanned": 152
+   },
+   "top_relevance": 0.6387,
+   "results": 11,
+   "top": [
+    {
+     "video": "lot-whitecar",
+     "start_s": 25.68,
+     "end_s": 30.16,
+     "relevance": 0.6387,
+     "samples": 3
+    },
+    {
+     "video": "lot-whitecar",
+     "start_s": 8.64,
+     "end_s": 19.64,
+     "relevance": 0.6061,
+     "samples": 10
+    },
+    {
+     "video": "lot-walking",
+     "start_s": 44.67,
+     "end_s": 53.92,
+     "relevance": 0.603,
+     "samples": 8
+    },
+    {
+     "video": "lot-walking",
+     "start_s": 13.67,
+     "end_s": 15.67,
+     "relevance": 0.5931,
+     "samples": 2
+    },
+    {
+     "video": "lot-walking",
+     "start_s": 18.67,
+     "end_s": 21.67,
+     "relevance": 0.5847,
+     "samples": 2
+    }
+   ],
+   "first_hit_rank": 2,
+   "hit@1": false,
+   "hit@5": true,
+   "hit@10": true,
+   "precision@5": 0.4,
+   "precision@10": 0.3,
+   "start_error_s": 5.86,
+   "end_error_s": 3.14
+  },
+  {
+   "id": "f027",
+   "query": "차가 주차장을 빠져나가는 장면",
+   "language": "ko",
+   "category": "action",
+   "negative": false,
+   "ambiguous": true,
+   "pair": "car-enter-leave",
+   "candidate_fraction": 0.3,
+   "wall_ms": 99.3,
+   "stats": {
+    "embed_ms": 95,
+    "scan_ms": 1,
+    "total_ms": 98,
+    "coverage_ratio": 1,
+    "samples_scanned": 152
+   },
+   "top_relevance": 0.5887,
+   "results": 11,
+   "top": [
+    {
+     "video": "lot-whitecar",
+     "start_s": 21.68,
+     "end_s": 30.16,
+     "relevance": 0.5887,
+     "samples": 8
+    },
+    {
+     "video": "lot-whitecar",
+     "start_s": 8.64,
+     "end_s": 19.64,
+     "relevance": 0.574,
+     "samples": 10
+    },
+    {
+     "video": "lot-walking",
+     "start_s": 13.67,
+     "end_s": 15.67,
+     "relevance": 0.5637,
+     "samples": 2
+    },
+    {
+     "video": "lot-walking",
+     "start_s": 17.67,
+     "end_s": 21.67,
+     "relevance": 0.5617,
+     "samples": 3
+    },
+    {
+     "video": "lot-walking",
+     "start_s": 43.67,
+     "end_s": 51.67,
+     "relevance": 0.5367,
+     "samples": 7
+    }
+   ],
+   "first_hit_rank": 1,
+   "hit@1": true,
+   "hit@5": true,
+   "hit@10": true,
+   "precision@5": 0.8,
+   "precision@10": 0.4,
+   "start_error_s": 4.82,
+   "end_error_s": 2.16
+  },
+  {
+   "id": "f028",
+   "query": "교실 앞에 서 있는 남자",
+   "language": "ko",
+   "category": "action",
+   "negative": false,
+   "ambiguous": false,
+   "pair": null,
+   "candidate_fraction": 0.3,
+   "wall_ms": 99.3,
+   "stats": {
+    "embed_ms": 96,
+    "scan_ms": 1,
+    "total_ms": 98,
+    "coverage_ratio": 1,
+    "samples_scanned": 152
+   },
+   "top_relevance": 0.4795,
+   "results": 6,
+   "top": [
+    {
+     "video": "classroom",
+     "start_s": 0.7,
+     "end_s": 32.8,
+     "relevance": 0.4795,
+     "samples": 33
+    },
+    {
+     "video": "lot-walking",
+     "start_s": 41.67,
+     "end_s": 45.67,
+     "relevance": 0.442,
+     "samples": 4
+    },
+    {
+     "video": "lot-walking",
+     "start_s": 1.67,
+     "end_s": 7.67,
+     "relevance": 0.4248,
+     "samples": 6
+    },
+    {
+     "video": "lot-whitecar",
+     "start_s": 29.68,
+     "end_s": 30.16,
+     "relevance": 0.3803,
+     "samples": 1
+    },
+    {
+     "video": "lot-whitecar",
+     "start_s": 8.64,
+     "end_s": 9.64,
+     "relevance": 0.367,
+     "samples": 1
+    }
+   ],
+   "first_hit_rank": 1,
+   "hit@1": true,
+   "hit@5": true,
+   "hit@10": true,
+   "precision@5": 0.2,
+   "precision@10": 0.1,
+   "start_error_s": 2.8,
+   "end_error_s": 17.3
+  },
+  {
+   "id": "f029",
+   "query": "소방차",
+   "language": "ko",
+   "category": "negative",
+   "negative": true,
+   "ambiguous": false,
+   "pair": null,
+   "candidate_fraction": 0.3,
+   "wall_ms": 77.9,
+   "stats": {
+    "embed_ms": 74,
+    "scan_ms": 1,
+    "total_ms": 76,
+    "coverage_ratio": 1,
+    "samples_scanned": 152
+   },
+   "top_relevance": 0.4623,
+   "results": 11,
+   "top": [
+    {
+     "video": "lot-whitecar",
+     "start_s": 8.64,
+     "end_s": 30.16,
+     "relevance": 0.4623,
+     "samples": 19
+    },
+    {
+     "video": "lot-whitecar",
+     "start_s": 0.64,
+     "end_s": 5.64,
+     "relevance": 0.432,
+     "samples": 5
+    },
+    {
+     "video": "lot-walking",
+     "start_s": 44.67,
+     "end_s": 45.67,
+     "relevance": 0.4278,
+     "samples": 1
+    },
+    {
+     "video": "lot-walking",
+     "start_s": 18.67,
+     "end_s": 21.67,
+     "relevance": 0.3889,
+     "samples": 2
+    },
+    {
+     "video": "lot-walking",
+     "start_s": 0.67,
+     "end_s": 2.67,
+     "relevance": 0.3855,
+     "samples": 2
+    }
+   ]
+  },
+  {
+   "id": "f030",
+   "query": "a dog running on the grass",
+   "language": "en",
+   "category": "negative",
+   "negative": true,
+   "ambiguous": false,
+   "pair": null,
+   "candidate_fraction": 0.3,
+   "wall_ms": 76.3,
+   "stats": {
+    "embed_ms": 72,
+    "scan_ms": 1,
+    "total_ms": 75,
+    "coverage_ratio": 1,
+    "samples_scanned": 152
+   },
+   "top_relevance": 0.3537,
+   "results": 10,
+   "top": [
+    {
+     "video": "lot-walking",
+     "start_s": 33.67,
+     "end_s": 45.67,
+     "relevance": 0.3537,
+     "samples": 10
+    },
+    {
+     "video": "lot-whitecar",
+     "start_s": 18.64,
+     "end_s": 30.16,
+     "relevance": 0.3486,
+     "samples": 9
+    },
+    {
+     "video": "lot-walking",
+     "start_s": 1.67,
+     "end_s": 9.67,
+     "relevance": 0.3411,
+     "samples": 7
+    },
+    {
+     "video": "lot-whitecar",
+     "start_s": 8.64,
+     "end_s": 15.64,
+     "relevance": 0.3314,
+     "samples": 7
+    },
+    {
+     "video": "lot-whitecar",
+     "start_s": 0.64,
+     "end_s": 5.64,
+     "relevance": 0.3227,
+     "samples": 5
+    }
+   ]
+  },
+  {
+   "id": "f031",
+   "query": "눈이 내리는 거리",
+   "language": "ko",
+   "category": "negative",
+   "negative": true,
+   "ambiguous": false,
+   "pair": null,
+   "candidate_fraction": 0.3,
+   "wall_ms": 80.8,
+   "stats": {
+    "embed_ms": 77,
+    "scan_ms": 1,
+    "total_ms": 79,
+    "coverage_ratio": 1,
+    "samples_scanned": 152
+   },
+   "top_relevance": 0.5439,
+   "results": 11,
+   "top": [
+    {
+     "video": "lot-whitecar",
+     "start_s": 8.64,
+     "end_s": 30.16,
+     "relevance": 0.5439,
+     "samples": 19
+    },
+    {
+     "video": "lot-whitecar",
+     "start_s": 0.64,
+     "end_s": 5.64,
+     "relevance": 0.5421,
+     "samples": 5
+    },
+    {
+     "video": "lot-walking",
+     "start_s": 44.67,
+     "end_s": 45.67,
+     "relevance": 0.4691,
+     "samples": 1
+    },
+    {
+     "video": "lot-walking",
+     "start_s": 0.67,
+     "end_s": 6.67,
+     "relevance": 0.4304,
+     "samples": 5
+    },
+    {
+     "video": "lot-walking",
+     "start_s": 18.67,
+     "end_s": 19.67,
+     "relevance": 0.4268,
+     "samples": 1
+    }
+   ]
+  },
+  {
+   "id": "f032",
+   "query": "a bus stopped at a bus stop",
+   "language": "en",
+   "category": "negative",
+   "negative": true,
+   "ambiguous": false,
+   "pair": null,
+   "candidate_fraction": 0.3,
+   "wall_ms": 80.8,
+   "stats": {
+    "embed_ms": 77,
+    "scan_ms": 1,
+    "total_ms": 79,
+    "coverage_ratio": 1,
+    "samples_scanned": 152
+   },
+   "top_relevance": 0.3649,
+   "results": 12,
+   "top": [
+    {
+     "video": "lot-whitecar",
+     "start_s": 8.64,
+     "end_s": 15.64,
+     "relevance": 0.3649,
+     "samples": 7
+    },
+    {
+     "video": "lot-whitecar",
+     "start_s": 17.68,
+     "end_s": 30.16,
+     "relevance": 0.3576,
+     "samples": 11
+    },
+    {
+     "video": "lot-whitecar",
+     "start_s": 0.64,
+     "end_s": 5.64,
+     "relevance": 0.3533,
+     "samples": 5
+    },
+    {
+     "video": "lot-walking",
+     "start_s": 18.67,
+     "end_s": 24.67,
+     "relevance": 0.3262,
+     "samples": 5
+    },
+    {
+     "video": "lot-walking",
+     "start_s": 43.67,
+     "end_s": 45.67,
+     "relevance": 0.3258,
+     "samples": 2
+    }
+   ]
+  },
+  {
+   "id": "f033",
+   "query": "마트 진열대 사이 통로",
+   "language": "ko",
+   "category": "negative",
+   "negative": true,
+   "ambiguous": false,
+   "pair": null,
+   "candidate_fraction": 0.3,
+   "wall_ms": 100.9,
+   "stats": {
+    "embed_ms": 97,
+    "scan_ms": 1,
+    "total_ms": 99,
+    "coverage_ratio": 1,
+    "samples_scanned": 152
+   },
+   "top_relevance": 0.4026,
+   "results": 14,
+   "top": [
+    {
+     "video": "people-walking",
+     "start_s": 0.68,
+     "end_s": 13.64,
+     "relevance": 0.4026,
+     "samples": 13
+    },
+    {
+     "video": "lot-whitecar",
+     "start_s": 18.64,
+     "end_s": 30.16,
+     "relevance": 0.3626,
+     "samples": 9
+    },
+    {
+     "video": "lot-walking",
+     "start_s": 44.67,
+     "end_s": 45.67,
+     "relevance": 0.3539,
+     "samples": 1
+    },
+    {
+     "video": "lot-walking",
+     "start_s": 18.67,
+     "end_s": 22.67,
+     "relevance": 0.3528,
+     "samples": 3
+    },
+    {
+     "video": "lot-whitecar",
+     "start_s": 0.64,
+     "end_s": 5.64,
+     "relevance": 0.34,
+     "samples": 3
+    }
+   ]
+  },
+  {
+   "id": "f034",
+   "query": "people waiting on a subway platform",
+   "language": "en",
+   "category": "negative",
+   "negative": true,
+   "ambiguous": false,
+   "pair": null,
+   "candidate_fraction": 0.3,
+   "wall_ms": 78.5,
+   "stats": {
+    "embed_ms": 75,
+    "scan_ms": 1,
+    "total_ms": 77,
+    "coverage_ratio": 1,
+    "samples_scanned": 152
+   },
+   "top_relevance": 0.5305,
+   "results": 13,
+   "top": [
+    {
+     "video": "people-walking",
+     "start_s": 0.68,
+     "end_s": 13.64,
+     "relevance": 0.5305,
+     "samples": 13
+    },
+    {
+     "video": "lot-whitecar",
+     "start_s": 28.64,
+     "end_s": 30.16,
+     "relevance": 0.3707,
+     "samples": 2
+    },
+    {
+     "video": "lot-whitecar",
+     "start_s": 8.64,
+     "end_s": 15.64,
+     "relevance": 0.3517,
+     "samples": 7
+    },
+    {
+     "video": "lot-whitecar",
+     "start_s": 19.68,
+     "end_s": 25.64,
+     "relevance": 0.3502,
+     "samples": 6
+    },
+    {
+     "video": "lot-walking",
+     "start_s": 42.67,
+     "end_s": 45.67,
+     "relevance": 0.331,
+     "samples": 2
+    }
+   ]
+  },
+  {
+   "id": "f035",
+   "query": "밤에 촬영된 도로",
+   "language": "ko",
+   "category": "negative",
+   "negative": true,
+   "ambiguous": false,
+   "pair": null,
+   "candidate_fraction": 0.3,
+   "wall_ms": 100.5,
+   "stats": {
+    "embed_ms": 97,
+    "scan_ms": 1,
+    "total_ms": 99,
+    "coverage_ratio": 1,
+    "samples_scanned": 152
+   },
+   "top_relevance": 0.4872,
+   "results": 10,
+   "top": [
+    {
+     "video": "lot-whitecar",
+     "start_s": 8.64,
+     "end_s": 30.16,
+     "relevance": 0.4872,
+     "samples": 19
+    },
+    {
+     "video": "lot-whitecar",
+     "start_s": 0.64,
+     "end_s": 5.64,
+     "relevance": 0.4657,
+     "samples": 5
+    },
+    {
+     "video": "lot-walking",
+     "start_s": 0.67,
+     "end_s": 11.67,
+     "relevance": 0.4291,
+     "samples": 9
+    },
+    {
+     "video": "lot-walking",
+     "start_s": 43.67,
+     "end_s": 45.67,
+     "relevance": 0.424,
+     "samples": 2
+    },
+    {
+     "video": "lot-walking",
+     "start_s": 14.67,
+     "end_s": 15.67,
+     "relevance": 0.3772,
+     "samples": 1
+    }
+   ]
+  },
+  {
+   "id": "f036",
+   "query": "a person lying on the floor",
+   "language": "en",
+   "category": "negative",
+   "negative": true,
+   "ambiguous": false,
+   "pair": null,
+   "candidate_fraction": 0.3,
+   "wall_ms": 81.4,
+   "stats": {
+    "embed_ms": 78,
+    "scan_ms": 1,
+    "total_ms": 80,
+    "coverage_ratio": 1,
+    "samples_scanned": 152
+   },
+   "top_relevance": 0.4541,
+   "results": 9,
+   "top": [
+    {
+     "video": "lot-whitecar",
+     "start_s": 19.68,
+     "end_s": 30.16,
+     "relevance": 0.4541,
+     "samples": 9
+    },
+    {
+     "video": "lot-whitecar",
+     "start_s": 8.64,
+     "end_s": 14.68,
+     "relevance": 0.3993,
+     "samples": 6
+    },
+    {
+     "video": "lot-walking",
+     "start_s": 35.67,
+     "end_s": 45.67,
+     "relevance": 0.3975,
+     "samples": 10
+    },
+    {
+     "video": "lot-walking",
+     "start_s": 1.67,
+     "end_s": 9.67,
+     "relevance": 0.3848,
+     "samples": 6
+    },
+    {
+     "video": "lot-walking",
+     "start_s": 24.67,
+     "end_s": 27.67,
+     "relevance": 0.3745,
+     "samples": 3
+    }
+   ]
+  }
+ ]
+}

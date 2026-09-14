@@ -72,8 +72,8 @@ bool CoreClient::ensureEndpoint(QString& error) {
   return true;
 }
 
-void CoreClient::request(const QByteArray& verb, const QString& path, const QJsonDocument& body, int timeoutMs,
-                         ResponseCallback cb, QObject* context) {
+QNetworkReply* CoreClient::request(const QByteArray& verb, const QString& path, const QJsonDocument& body,
+                                  int timeoutMs, ResponseCallback cb, QObject* context) {
   QObject* ctx = context ? context : this;
   QString discoveryError;
   if (!ensureEndpoint(discoveryError)) {
@@ -81,7 +81,7 @@ void CoreClient::request(const QByteArray& verb, const QString& path, const QJso
     QTimer::singleShot(0, this, [cb = std::move(cb), guard, discoveryError] {
       if (guard) cb(Response{Failure::NoDiscovery, QJsonDocument(), discoveryError, QByteArray()});
     });
-    return;
+    return nullptr;
   }
   QNetworkRequest req(QUrl(baseUrl() + path));
   req.setRawHeader("Authorization", "Bearer " + token_.toLatin1());
@@ -91,12 +91,12 @@ void CoreClient::request(const QByteArray& verb, const QString& path, const QJso
   QNetworkReply* reply = nam_.sendCustomRequest(req, verb, payload);
   reply->setParent(this);
   ++pending_;
-  connect(reply, &QNetworkReply::finished, ctx, [this, reply, cb = std::move(cb)] {
+  connect(reply, &QNetworkReply::finished, ctx, [this, reply, timeoutMs, cb = std::move(cb)] {
     const QNetworkReply::NetworkError netError = reply->error();
     const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
     QJsonParseError parseError{};
     Response response;
-    response.body = reply->readAll();
+    if (reply->isOpen()) response.body = reply->readAll();
     response.doc = QJsonDocument::fromJson(response.body, &parseError);
     if (parseError.error != QJsonParseError::NoError) response.doc = QJsonDocument();
     response.failure = classify(netError);
@@ -104,6 +104,8 @@ void CoreClient::request(const QByteArray& verb, const QString& path, const QJso
       const QString apiMessage = response.doc.object().value(QLatin1StringView("error")).toObject()
                                      .value(QLatin1StringView("message")).toString();
       response.error = apiMessage.isEmpty() ? reply->errorString() : apiMessage;
+      if (netError == QNetworkReply::OperationCanceledError)
+        response.error = QStringLiteral("no answer within %1 s").arg(timeoutMs / 1000);
       if (status > 0) response.error = QStringLiteral("HTTP %1: %2").arg(status).arg(response.error);
       if (response.failure == Failure::Refused) resetEndpoint();
     } else if (status < 200 || status >= 300) {
@@ -116,11 +118,12 @@ void CoreClient::request(const QByteArray& verb, const QString& path, const QJso
     reply->deleteLater();
     if (--pending_ == 0) emit drained();
   });
+  return reply;
 }
 
-void CoreClient::send(const QByteArray& verb, const QString& path, const QJsonDocument& body, Callback cb,
-                      QObject* context, int timeoutMs) {
-  request(verb, path, body, timeoutMs, [cb = std::move(cb)](const Response& r) {
+QNetworkReply* CoreClient::send(const QByteArray& verb, const QString& path, const QJsonDocument& body, Callback cb,
+                               QObject* context, int timeoutMs) {
+  return request(verb, path, body, timeoutMs, [cb = std::move(cb)](const Response& r) {
     cb(r.failure == Failure::None, r.doc, r.error);
   }, context);
 }
@@ -270,6 +273,19 @@ void CoreClient::evidenceThumbnail(const QString& evidenceId, BytesCallback cb, 
 
 void CoreClient::shutdownService(Callback cb, QObject* context) {
   send("POST", QStringLiteral("/v1/service/shutdown"), {}, std::move(cb), context);
+}
+
+QPointer<QNetworkReply> CoreClient::search(const QJsonObject& request, Callback cb, QObject* context) {
+  return send("POST", QStringLiteral("/v1/search"), QJsonDocument(request), std::move(cb), context, kSearchTimeoutMs);
+}
+
+QPointer<QNetworkReply> CoreClient::searchThumbnail(const QString& recordId, BytesCallback cb, QObject* context) {
+  return request("GET", QStringLiteral("/v1/search/thumbnails/%1").arg(recordId), {}, kTimeoutMs,
+                 [cb = std::move(cb)](const Response& r) { cb(r.failure == Failure::None, r.body, r.error); }, context);
+}
+
+void CoreClient::indexStatus(Callback cb, QObject* context) {
+  send("GET", QStringLiteral("/v1/index"), {}, std::move(cb), context);
 }
 
 }

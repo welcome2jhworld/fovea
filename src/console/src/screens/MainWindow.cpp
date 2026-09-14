@@ -9,6 +9,7 @@
 #include "screens/alerts/AlertsScreen.h"
 #include "screens/alerts/RulesRail.h"
 #include "screens/monitor/MonitorScreen.h"
+#include "screens/search/SearchScreen.h"
 #include "theme/Tokens.h"
 #include <QAbstractSpinBox>
 #include <QAction>
@@ -39,7 +40,8 @@ bool isTextInput(QWidget* w) {
 
 MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent), launcher_(client_, this), poller_(client_, this), events_(client_, this),
-      dispatcher_(client_, events_, this), thumbnails_(client_, this) {
+      dispatcher_(client_, events_, this), thumbnails_(client_, ThumbnailCache::Source::Evidence, this),
+      searchThumbnails_(client_, ThumbnailCache::Source::SearchRecord, this) {
   setWindowFlags(Qt::Window | Qt::FramelessWindowHint);
   setWindowTitle(QStringLiteral("Fovea"));
   setMinimumSize(tk::size::windowMinWidth, tk::size::windowMinHeight);
@@ -55,8 +57,8 @@ MainWindow::MainWindow(QWidget* parent)
   stack_->setObjectName(QStringLiteral("ScreenStack"));
   monitor_ = new MonitorScreen(client_, events_, stack_);
   stack_->addWidget(monitor_);
-  stack_->addWidget(new NotImplementedState(QStringLiteral("Search is not implemented in this build."),
-                                            QStringLiteral("ARRIVES WITH M4"), stack_));
+  searchScreen_ = new SearchScreen(client_, searchThumbnails_, stack_);
+  stack_->addWidget(searchScreen_);
   alertsScreen_ = new AlertsScreen(client_, events_, thumbnails_, stack_);
   stack_->addWidget(alertsScreen_);
   stack_->addWidget(new NotImplementedState(QStringLiteral("Model Train is not implemented in this build."),
@@ -125,6 +127,7 @@ void MainWindow::onSnapshot(const QVector<fovea::Camera>& cameras, const QVector
   cameras_ = cameras;
   monitor_->setSnapshot(cameras, statuses);
   alertsScreen_->setSnapshot(cameras, statuses);
+  searchScreen_->setCameras(cameras);
   openScreenshotView();
 }
 
@@ -162,6 +165,10 @@ void MainWindow::openScreenshotView() {
     return;
   }
   screenshotViewOpened_ = true;
+  if (screenshotView_.startsWith(QLatin1StringView("search"))) {
+    openSearchScreenshotView();
+    return;
+  }
   const fovea::Camera first = cameras_.first();
   if (screenshotView_ == QLatin1StringView("camera-dialog")) {
     openCameraDialog(first.id);
@@ -207,6 +214,22 @@ void MainWindow::openAlertsScreenshotView() {
   alertsScreen_->openEvent(playable != events.end() ? playable->id : events.first().id);
 }
 
+// Queries carry the stub service's fixture markers: [slow] is held past the screenshot,
+// [empty] answers without results, [error] fails; any other query answers with results.
+void MainWindow::openSearchScreenshotView() {
+  const struct { const char* view; const char* query; } queries[] = {
+      {"search", "person walking through the lobby [slow]"},
+      {"search-results", "person walking across the gate apron"},
+      {"search-empty", "red umbrella left on a bench [empty]"},
+      {"search-error", "person at the turnstiles [error]"}};
+  for (const auto& entry : queries) {
+    if (screenshotView_ != QLatin1StringView(entry.view)) continue;
+    tabBar_->tabs()->setCurrentIndex(kSearchTab);
+    searchScreen_->search(QString::fromUtf8(entry.query));
+    return;
+  }
+}
+
 void MainWindow::resizeEvent(QResizeEvent* event) {
   QMainWindow::resizeEvent(event);
   dialogs_->setGeometry(rect());
@@ -215,7 +238,13 @@ void MainWindow::resizeEvent(QResizeEvent* event) {
 bool MainWindow::eventFilter(QObject* watched, QEvent* event) {
   if (event->type() == QEvent::KeyPress && !dialogs_->isOpen()) {
     auto* key = static_cast<QKeyEvent*>(event);
-    const bool plain = (key->modifiers() & ~Qt::KeypadModifier) == Qt::NoModifier;
+    const Qt::KeyboardModifiers modifiers = key->modifiers() & ~Qt::KeypadModifier;
+    if (key->key() == Qt::Key_K && modifiers == Qt::ControlModifier) {
+      tabBar_->tabs()->setCurrentIndex(kSearchTab);
+      searchScreen_->focusQuery();
+      return true;
+    }
+    const bool plain = modifiers == Qt::NoModifier;
     if (plain && key->key() >= Qt::Key_1 && key->key() <= Qt::Key_4 && !isTextInput(QApplication::focusWidget())) {
       tabBar_->tabs()->setCurrentIndex(key->key() - Qt::Key_1);
       return true;

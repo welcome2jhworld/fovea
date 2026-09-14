@@ -12,10 +12,11 @@ import time
 from collections import Counter
 from pathlib import Path
 
-from . import bench_serve
-from .backends import DETECTOR_BACKENDS, VLM_BACKENDS, load_backend, load_detector
+from . import bench_serve, embed_cli
+from .backends import DETECTOR_BACKENDS, EMBED_BACKENDS, VLM_BACKENDS, load_backend, load_detector, load_embed_backend
+from .embedding import INDEX_VERSIONS
 from .protocol import DETECT_DEFAULT_THRESHOLD, Job, Result, validate_result_against_job
-from .server import DETECT_LANE, serve
+from .server import DETECT_LANE, EMBED_LANE, serve
 from .stats import percentile
 
 STOP_SIGNALS = ("SIGTERM", "SIGINT", "SIGBREAK")
@@ -219,9 +220,16 @@ def cmd_serve(args: argparse.Namespace) -> int:
         return 2
     stop = threading.Event()
     _install_stop_handlers(stop)
+    preload = tuple(n.strip() for n in args.embed_preload.split(",") if n.strip())
+    unknown = sorted(set(preload) - set(INDEX_VERSIONS))
+    if unknown or (preload and args.embedder == "none"):
+        print(f"--embed-preload needs an embedder and known index versions, got {args.embed_preload!r}",
+              file=sys.stderr)
+        return 2
     backend = load_backend(args.backend)
     detector = load_detector(args.detector)
-    server = serve(backend, "127.0.0.1", args.port, token, detector=detector)
+    embedder = load_embed_backend(args.embedder, preload)
+    server = serve(backend, "127.0.0.1", args.port, token, detector=detector, embedder=embedder)
     threading.Thread(target=server.serve_forever, kwargs={"poll_interval": STOP_POLL_S}, name="http", daemon=True).start()
     pid = os.getpid()
     info = {"port": server.server_address[1], "pid": pid, "backend": backend.name, "model": backend.version,
@@ -235,6 +243,8 @@ def cmd_serve(args: argparse.Namespace) -> int:
             threading.Thread(target=_set_on_stdin_eof, args=(stop,), name="stdin", daemon=True).start()
         if args.warmup:
             threading.Thread(target=server.state.warm_up, args=(DETECT_LANE,), name="warmup", daemon=True).start()
+        if preload:
+            threading.Thread(target=server.state.warm_up, args=(EMBED_LANE,), name="embed-warmup", daemon=True).start()
         while not stop.wait(STOP_POLL_S):
             pass
         server.shutdown()
@@ -284,10 +294,15 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--token-file")
     s.add_argument("--info-file", help="written atomically once the socket is bound; removed on a clean exit")
     s.add_argument("--warmup", action="store_true", help="load the detector and run one inference right after binding")
+    s.add_argument("--embedder", default="transformers", choices=EMBED_BACKENDS,
+                   help="embed lane backend; models load per index version on the first embed job")
+    s.add_argument("--embed-preload", default="",
+                   help="comma separated index versions to load and warm up right after binding")
     s.add_argument("--exit-on-stdin-eof", action="store_true",
                    help="stop when stdin reaches end of file, so a parent holding the write end ties our lifetime to its own")
     s.set_defaults(func=cmd_serve)
     bench_serve.add_parser(sub)
+    embed_cli.add_parsers(sub)
     args = p.parse_args(argv)
     return args.func(args)
 

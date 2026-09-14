@@ -151,11 +151,12 @@ QComboBox QLineEdit, QComboBox QLineEdit:focus { border: none; background: trans
   min-height: 30px; max-height: 30px; }
 QComboBox QAbstractItemView { background: %bgPanel%; border: 1px solid %lineStrong%; border-radius: 6px; padding: 4px;
   outline: 0; color: %textSecondary%; selection-background-color: %bgRaised%; selection-color: %textPrimary%; }
-QSpinBox, QTimeEdit { min-height: 32px; max-height: 32px; border-radius: 6px; background: %bgPanel%; border: 1px solid %line%;
+QSpinBox, QDateTimeEdit { min-height: 32px; max-height: 32px; border-radius: 6px; background: %bgPanel%; border: 1px solid %line%;
   padding: 0 12px; color: %textPrimary%; selection-background-color: %accent%; selection-color: %accentInk%; }
-QSpinBox:focus, QTimeEdit:focus { border: 1px solid %accent%; }
-QSpinBox::up-button, QSpinBox::down-button, QTimeEdit::up-button, QTimeEdit::down-button { width: 0; border: none; }
-QLineEdit:disabled, QComboBox:disabled, QSpinBox:disabled, QTimeEdit:disabled { color: %textDisabled%; }
+QSpinBox:focus, QDateTimeEdit:focus { border: 1px solid %accent%; }
+QSpinBox::up-button, QSpinBox::down-button, QDateTimeEdit::up-button, QDateTimeEdit::down-button { width: 0; border: none; }
+QDateTimeEdit[mono="true"] { font-family: %mono%; font-size: 12px; }
+QLineEdit:disabled, QComboBox:disabled, QSpinBox:disabled, QDateTimeEdit:disabled { color: %textDisabled%; }
 QLineEdit[surface="app"], QComboBox[surface="app"], QSpinBox[surface="app"], QTimeEdit[surface="app"] {
   background: %bgApp%; min-height: 30px; max-height: 30px; padding: 0 10px; }
 QComboBox[surface="app"] QLineEdit { min-height: 28px; max-height: 28px; }
@@ -269,6 +270,28 @@ QWidget#MetaRow { background: transparent; border-bottom: 1px solid %lineRow%; }
 QLabel#MetaKey { font-size: 12px; color: %textMuted%; }
 QLabel#MetaValue { color: %textPrimary%; }
 QPushButton#ReviewButton:checked { background: %bgRaised%; border: 1px solid %accent%; color: %textPrimary%; }
+
+#SearchScreen, #SearchResults { background: %bgApp%; }
+#SearchQueryBlock { background: %bgApp%; border-bottom: 1px solid %lineQuiet%; }
+QWidget#QueryBar { background: %bgPanel%; border: 1px solid %lineStrong%; border-radius: 8px; }
+QWidget#QueryBar[focus="true"] { border: 1px solid %accent%; }
+QLabel#QueryAsk { color: %accent%; }
+QLineEdit#QueryField, QLineEdit#QueryField:focus { background: transparent; border: none; border-radius: 0; padding: 0;
+  min-height: 40px; max-height: 40px; font-size: 17px; color: %textPrimary%; }
+QPushButton#SearchButton { min-height: 38px; max-height: 38px; padding: 0 20px; font-size: 14px; border: 1px solid %accent%; }
+QLabel#SearchStats, QLabel#IndexStatus { color: %textMuted%; }
+QWidget#ResultsRule { background: %lineQuiet%; }
+QLabel#ResultsSorted { font-size: 12px; color: %textSecondary%; }
+QListView#ResultGrid { background: transparent; border: none; outline: 0; }
+QListView#ResultGrid::item { background: transparent; border: none; padding: 0; }
+QListView#ResultGrid::item:hover, QListView#ResultGrid::item:selected { background: transparent; }
+QLabel#SearchMessage { color: %textSecondary%; }
+QLabel#SearchMessageDetail { font-size: 12px; color: %textMuted%; }
+QLabel#SearchMessageDetail[tone="critical"] { color: %critical%; }
+#SearchInspector { background: %bgApp%; border-left: 1px solid %lineQuiet%; }
+QLabel#InspectorRelevance { color: %accent%; }
+QWidget#SimilarityNote { background: %bgPanel%; border: 1px solid %line%; border-radius: 6px; }
+QLabel#SimilarityNoteText { font-size: 12px; color: %textSecondary%; }
 
 #RecordingsPanel { background: %bgApp%; border-left: 1px solid %lineQuiet%; }
 #RecordingsHeader { background: %bgApp%; border-bottom: 1px solid %lineQuiet%; }

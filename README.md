@@ -5,9 +5,10 @@ cameras, search recordings in natural language, and get alerts for rules you
 define, each with the evidence clip. Everything runs on one machine: no cloud
 service, no remote video upload, no internet connection required at runtime.
 
-**Status: early development.** Live view, recording, retention and the first
-rule (person in a zone) with alerts and evidence clips work end to end. Search
-and the VLM features are being built milestone by milestone.
+**Status: early development.** Live view, recording, retention, the first
+rule (person in a zone) with alerts and evidence clips, and natural-language
+search over recordings work end to end. The VLM features are being built
+milestone by milestone.
 See [docs/STATUS.md](docs/STATUS.md) for what is verified today and
 [docs/PLAN.md](docs/PLAN.md) for the plan.
 
@@ -32,10 +33,19 @@ See [docs/STATUS.md](docs/STATUS.md) for what is verified today and
   sound, optional jump to the camera), an evidence clip and thumbnail per
   event, and acknowledge, resolve and review saved in the local database.
   Detection boxes on live tiles.
+- Natural-language search over recordings, in Korean or English: every
+  finalized segment is sampled once a second and embedded (SigLIP 2 by default,
+  Qwen3-VL-Embedding as a second index version) in the worker; a query returns
+  ranked time ranges per camera with thumbnails, how much of the range was
+  indexed, and plays the original footage. Results are embedding similarity
+  only and the console says so; the index survives restarts and follows
+  retention. Video files can be imported into a camera's recordings for
+  investigation.
 - Local RTSP test source (test pattern, video file loop, or this machine's
   webcam) for trying everything without a camera.
 
-In progress: natural-language search (M4), Windows verification of M2 and M3.
+In progress: VLM re-check of search results and follow-up questions (M5),
+Windows verification of M2 to M4.
 
 ## Try it on Windows (x64)
 
@@ -52,11 +62,13 @@ In progress: natural-language search (M4), Windows verification of M2 and M3.
    ```
    Then **+ Add** in the console with that URL, or your camera's
    `rtsp://user:pass@ip:554/...` URL.
-4. Detection and alerts (optional): run `Setup-Worker.cmd` once (needs Python
-   3.12 and internet). It installs PyTorch (CUDA build when an NVIDIA GPU is
-   present) and the RF-DETR detector into `worker\.venv`; the service picks it
-   up on its next start. Then enable "Run analytics on this camera" and create
-   a rule with a zone under **Alerts & Analytics**.
+4. Detection, alerts and search (optional): run `Setup-Worker.cmd` once (needs
+   Python 3.12 and internet). It installs PyTorch (CUDA build when an NVIDIA
+   GPU is present) and the RF-DETR detector into `worker\.venv` and downloads
+   the search embedding model (about 1.5 GB) into the Hugging Face cache; the
+   service picks it up on its next start. Then enable "Run analytics on this
+   camera" and create a rule with a zone under **Alerts & Analytics**, or type
+   a question under **Search** once the index line shows coverage.
 5. Self test (needs Python 3.10+): `python verify_m1.py --bin-dir bin --flat`
 
 Data lives in `%LOCALAPPDATA%\Fovea` (override with `FOVEA_DATA_DIR`).
@@ -89,6 +101,7 @@ brew install cmake ninja pkgconf qt gstreamer ffmpeg
 ./scripts/build.sh
 ./scripts/test.sh
 python3 scripts/verify_m1.py --bin-dir build/macos-dev
+./scripts/setup-worker.sh torch && ./scripts/fetch-models.sh search   # detection and search
 ```
 
 `scripts/env.sh` puts Homebrew's GStreamer first on `PATH` (an Anaconda
@@ -106,14 +119,16 @@ Three processes on one machine:
 
 Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md),
 [docs/API.md](docs/API.md), [docs/DATA_CONTRACTS.md](docs/DATA_CONTRACTS.md),
-[docs/M3_DESIGN.md](docs/M3_DESIGN.md), [docs/DECISIONS.md](docs/DECISIONS.md).
+[docs/M3_DESIGN.md](docs/M3_DESIGN.md), [docs/M4_DESIGN.md](docs/M4_DESIGN.md),
+[docs/DECISIONS.md](docs/DECISIONS.md).
 
 ## Model worker (needed for detection and rules)
 
 ```
 ./scripts/setup-worker.sh torch        # macOS/Linux; mlx extra for Apple silicon
-./scripts/fetch-models.sh minimal      # downloads pinned weights to the HF cache
+./scripts/fetch-models.sh search       # SigLIP 2 for search (1.5 GB); m0 / all add the VLMs
 worker/.venv/bin/fovea-worker detect-frames <frames-dir>
+worker/.venv/bin/fovea-worker embed-query "a white car" --against <frames-dir> --index siglip2-b16-224
 ```
 
 Models are not bundled; see [docs/models/candidates.md](docs/models/candidates.md)
@@ -132,6 +147,13 @@ for ids, sizes and licenses.
   disk floor and retention.
 - `scripts/verify_m3.py --seated <clip> [--walking <clip>]`: zone rule, events,
   worker kill, evidence and review against the real detector worker.
+- `scripts/verify_m4.py --classroom <clip> --walking <clip> --whitecar <clip>`:
+  imports, index resume after a kill without duplicates, queries and filters,
+  playback of a result, retention removing results.
+- `scripts/eval_search.py --video <clip>... --index-version-name <name>`:
+  retrieval metrics on `eval/search/questions.json` (Recall@K, precision,
+  temporal error, latency, index cost, negatives); reports land in
+  `docs/verification/`.
 
 ## Security notes
 

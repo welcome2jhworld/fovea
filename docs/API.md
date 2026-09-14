@@ -13,7 +13,7 @@ Bodies and responses are JSON. Errors: `{ "error": { "code": "...", "message": "
 | POST | /v1/cameras | create Camera (body: Camera fields + optional `username`, `password`) |
 | GET | /v1/cameras/{id} | Camera + status |
 | PUT | /v1/cameras/{id} | update; fields not in the body keep their values (restarts the pipeline if connection fields changed; `retention_days` or `max_bytes` start a retention pass) |
-| DELETE | /v1/cameras/{id} | delete camera; segments stay on disk and are marked `deleted` in metadata, its evidence refs become `deleted` (thumbnails removed), its rules are deleted (open events clear with note `camera_deleted`) and its zones too |
+| DELETE | /v1/cameras/{id} | delete camera; segments stay on disk and are marked `deleted` in metadata, its evidence refs become `deleted` (thumbnails removed), its search index records become deleted (thumbnails removed), its rules are deleted (open events clear with note `camera_deleted`) and its zones too |
 | POST | /v1/cameras/{id}/enable, /disable | start / stop pipeline |
 | POST | /v1/cameras/test | probe a connection for up to `timeout_ms`; returns codec, width, height, fps, bitrate_kbps, handshake_ms, or an error |
 | GET | /v1/cameras/{id}/sessions | StreamSessions, newest first |
@@ -42,7 +42,7 @@ never included.
 Camera (as returned, and accepted by POST/PUT):
 ```
 { id, code, name, group_name, kind: rtsp|file, main_url, sub_url, transport: tcp|udp,
-  timeout_ms, jitter_ms, segment_seconds (5..600), analytics_enabled, record_enabled, enabled,
+  timeout_ms, jitter_ms, segment_seconds (5..600), analytics_enabled, index_enabled (default true), record_enabled, enabled,
   retention_days (1..3650, default 7), max_bytes (0 = no limit, default 0),
   created_utc_ms, updated_utc_ms }
 ```
@@ -82,7 +82,9 @@ skipped (and `floor_unreachable` is true) when deleting every deletable
 segment could not reach the target. A segment with an active evidence hold is
 never deleted (`held_last_run` counts the ones skipped). Deleted segments keep
 their row with state `deleted`; each deletion is written to the audit log
-(actor `retention`, action `segment.delete`).
+(actor `retention`, action `segment.delete`) and, in the same transaction,
+marks the segment's search index records deleted and its unfinished index jobs
+skipped.
 
 Environment: `FOVEA_MIN_FREE_MB` overrides `--min-free-mb`. `FOVEA_RETENTION_SECONDS`
 is for tests only: when set, every camera's age limit is that many seconds
@@ -193,8 +195,86 @@ enabled rules within [0.1, 0.3]) and `max_gap_ns` (their longest
 
 Environment: `FOVEA_WORKER_CMD` is a command line that runs the worker CLI
 (for example `"worker/.venv/bin/python" -m fovea_worker.cli`); the core appends
-`serve --backend dry --detector rfdetr --port 0 --token-file <data>/worker.token
---info-file <data>/worker.json --warmup --exit-on-stdin-eof`. Without it the
+`serve --backend dry --detector rfdetr --embedder transformers --port 0
+--token-file <data>/worker.token --info-file <data>/worker.json --warmup
+--exit-on-stdin-eof`. Without it the
 core looks for `<app dir>/worker/.venv/bin/fovea-worker`
 (`Scripts\fovea-worker.exe` on Windows), then for a development tree above the
 executable. Worker output goes to `<data>/logs/worker.log`.
+
+## Search, index and imports (M4)
+
+Design and lifecycles are in `docs/M4_DESIGN.md`. Validation failures return
+400, unknown ids 404.
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| POST | /v1/search | `{query, from_utc_ms?, to_utc_ms?, camera_ids?, limit?, min_gap_ms?, candidate_fraction?, index_version?}` -> ranked ranges |
+| GET | /v1/search/{session_id} | a stored search, its ranges checked against deletions since |
+| GET | /v1/search/thumbnails/{record_id} | JPEG (at most 320 px wide) of a sampled frame; 404 `record_deleted` once its footage is deleted |
+| GET | /v1/index?storage=1 | active version, versions, per camera coverage, queue, throughput, recent failures; `storage=1` adds bytes per version |
+| PUT | /v1/index/active | `{index_version_name}`; makes it active and queues its re-index (the previous name keeps answering while it covers more) |
+| DELETE | /v1/index/versions/{hash} | deletes a version's rows and files; 409 `active_index_version`, or `index_version_busy` while one of its jobs runs or a search is scanning |
+| POST | /v1/imports | `{path, camera_id, start_utc_ms}` -> 202 with the queued import |
+| GET | /v1/imports?limit= | imports, newest first (limit 1..1000, 100) |
+| GET | /v1/imports/{id} | one import |
+
+Search request: `query` 1..1000 characters; `from_utc_ms`/`to_utc_ms`
+non-negative integers (either may be omitted; the range is clamped to the
+finalized footage of the selected cameras); `camera_ids` existing cameras (400
+`unknown_camera`), all cameras when omitted; `limit` 1..200 (20); `min_gap_ms`
+0..600000 (3000); `candidate_fraction` (0, 1] (0.3); `index_version` a version
+hash or name (404 `unknown_index_version`), else the active version or the
+previous one when that covers strictly more of the range. A filter that leaves no
+footage (no finalized segment of the selected cameras in the window) answers at
+once with no results and coverage 0, without asking the worker. Errors: 400
+`invalid_search`, 409 `index_not_ready` (no version stored yet), 503
+`embed_unavailable` (worker not ready), `embed_failed` (transient) or
+`search_busy` (two scans are running and four more are waiting), 502
+`embed_failed` (worker error or contract violation), 500 `scan_failed`.
+
+Search response (and `GET /v1/search/{id}`):
+```
+{ session_id, query, created_utc_ms, index_version, index_version_name, model, model_revision,
+  scoring: "embedding_similarity", note: "similarity only, not verified",
+  filters: {from_utc_ms, to_utc_ms, effective_from_utc_ms, effective_to_utc_ms, camera_ids, limit, min_gap_ms,
+            candidate_fraction, index_version},
+  results: [{ camera_id, start_utc_ms, end_utc_ms, relevance, evidence_state: available|partial,
+              representative: {record_id, camera_id, segment_id, utc_ms, relevance, thumbnail},
+              samples: [{record_id, camera_id, segment_id, utc_ms, relevance}] }],
+  stats: { samples_scanned, samples_unreadable, candidates, hours_scanned, frames_expected, frames_indexed,
+           coverage_ratio, sample_interval_ms, embed_ms, scan_ms, total_ms } }
+```
+`relevance` is cosine similarity for ranking only (never a probability).
+`representative.thumbnail` is the thumbnail path of this API. A range is
+`partial` when footage inside it was deleted after the search or samples of it
+were dropped. `hours_scanned` counts scanned samples times the sample interval;
+`coverage_ratio` is `frames_indexed / frames_expected` over the filtered range
+(0 when no footage is in range). Each query is written to the audit log
+(`search.query`).
+
+Index status (`GET /v1/index`):
+```
+{ active_index_version, previous_index_version, index_version, model, sample_interval_ms,
+  state: idle|indexing|describing|paused|waiting_worker|disabled, last_error, known_index_version_names,
+  versions: [{hash, name, model_id, model_revision, dims, dtype, sample_interval_ms, descriptor, created_utc_ms,
+              active, previous, queue, frames_indexed, footage_ms, compute_ms, coverage_ratio,
+              storage: {vector_bytes, thumbnail_bytes, rows, row_payload_bytes}}],
+  cameras: [{camera_id, index_enabled, frames_expected, frames_indexed, coverage_ratio}],
+  queue: {queued, running, done, failed, skipped},
+  throughput: {footage_ms, compute_ms, frames_indexed, compute_s_per_footage_hour, realtime_factor},
+  recent_failures: [IndexJob], running_job: IndexJob + {stage: sampling|embedding, frames_sampled, frames_stored} | null }
+```
+IndexJob: `{id, segment_id, camera_id, index_version, state: queued|running|done|failed|skipped, reason, attempts,
+generation, sample_interval_ms, frames_expected, frames_indexed, next_attempt_utc_ms, compute_ms, footage_ms,
+updated_utc_ms}`. `compute_ms` is the job's wall time (decode, encode and embedding round trips) and
+`footage_ms` its segment's length; `row_payload_bytes` estimates column bytes without SQLite overhead.
+
+Import: `{id, camera_id, session_id, source_path, state: queued|running|done|failed, error, codec, start_utc_ms,
+duration_ns, progress, segments, bytes, created_utc_ms, started_utc_ms, finished_utc_ms}`. POST errors: 400
+`invalid_import` (path not absolute, `start_utc_ms` not positive), `file_not_found`, `file_unreadable`,
+`unsupported_container` (not mp4, m4v, mov or mkv), `unreadable_media`, `unsupported_codec` (not H.264/H.265);
+404 `not_found` (camera); 409 `footage_overlap` (the camera already has footage, or a queued import, in that span).
+The audit log records `import.create`, `import.done`, `import.fail`, `index.activate` and `index.version.delete`.
+`GET /v1/analysis` and `/v1/metrics` also carry the worker's `embedder`, `embed_state`, `embed_device`,
+`embed_busy_ms`, `embed_turnaround_ms` and `embed_versions`.

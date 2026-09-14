@@ -19,6 +19,7 @@ struct Camera {
   int jitterMs = 1000;
   int segmentSeconds = 60;
   bool analyticsEnabled = false;
+  bool indexEnabled = true;
   bool recordEnabled = true;
   bool enabled = true;
   int retentionDays = 7;

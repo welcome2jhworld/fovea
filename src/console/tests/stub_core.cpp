@@ -6,9 +6,14 @@
 // channels that render a pattern with a running clock, TEST FIXTURE zones,
 // rules, events with evaluations and evidence in each state, detections that
 // follow the drawn figure, and one live alert per console session raised
-// shortly after that console first asks for pending alerts. Nothing here
-// touches a real stream, file, model or database. POST /v1/cameras/test fails
-// for any main_url containing "fail" (the second seeded camera).
+// shortly after that console first asks for pending alerts, and M4 search
+// (docs/M4_DESIGN.md "Query path"): TEST FIXTURE ranks inside the recorded
+// segments with generated thumbnails, index status per camera and a job queue.
+// A query containing [slow] is answered after 20 s, [empty] without results
+// and nothing indexed, [error] with 503; any other query gets the fixture
+// ranges that fall inside its time and camera filter. Nothing here touches a
+// real stream, file, model or database. POST /v1/cameras/test fails for any
+// main_url containing "fail" (the second seeded camera).
 #include "fovea/Api.h"
 #include "fovea/Clock.h"
 #include "fovea/FrameRing.h"
@@ -36,8 +41,11 @@
 #include <QUuid>
 #include <csignal>
 #include <cstdio>
+#include <cstdlib>
 #include <algorithm>
+#include <cmath>
 #include <deque>
+#include <iterator>
 #include <map>
 #include <memory>
 
@@ -63,6 +71,35 @@ constexpr int64_t kSecondMs = 1000;
 constexpr int kDetectionLagFrames = 4;
 constexpr int kDetectionHistory = 32;
 constexpr int kLiveAlertDelayMs = 1500;
+constexpr int kSearchDelayMs = 400;
+constexpr int kSlowSearchDelayMs = 20000;
+constexpr double kSearchCoverage = 0.87;
+constexpr int64_t kRecordIdBase = 1000;
+constexpr int64_t kRecordsPerRange = 100;
+constexpr const char* kIndexVersionName = "siglip2-b16-224";
+constexpr const char* kIndexVersionHash = "5f0c2a9e41d7";
+constexpr const char* kIndexModel = "google/siglip2-base-patch16-224";
+constexpr const char* kIndexModelRevision = "75de2d55ec2d0b4efc50b3e9ad70dba96a7b2fa2";
+// The core's limits (SearchService.h), repeated here because the stub does not link the core.
+constexpr int kSearchLimitDefault = 20;
+constexpr int kSearchLimitMax = 200;
+
+// TEST FIXTURE search ranges, best first: a range of the segment seg-<code>-<n>,
+// one sample per second of its length.
+struct SearchFixture {
+  const char* code;
+  int segment;
+  int offsetSeconds;
+  int samples;
+  double relevance;
+  const char* evidenceState;
+};
+constexpr SearchFixture kSearchFixtures[] = {
+    {"CAM-01", 2, 7, 9, 0.312, "available"}, {"CAM-02", 2, 16, 6, 0.297, "available"},
+    {"CAM-01", 3, 33, 5, 0.284, "available"}, {"CAM-02", 3, 4, 1, 0.263, "available"},
+    {"CAM-01", 5, 12, 14, 0.241, "available"}, {"CAM-02", 5, 40, 8, 0.226, "partial"},
+    {"CAM-01", 2, 41, 4, 0.204, "available"}, {"CAM-02", 3, 48, 7, 0.187, "available"}};
+constexpr int kSearchFixtureCount = static_cast<int>(std::size(kSearchFixtures));
 
 struct FigureSample {
   int64_t ptsNs = 0;
@@ -332,14 +369,15 @@ private:
             {"last_error", error}, {"created_utc_ms", num(created)}, {"delivered_utc_ms", num(delivered)}};
   }
 
-  QByteArray thumbnail(const StubCamera& cam, int64_t utcMs) {
+  QByteArray thumbnail(const StubCamera& cam, int64_t utcMs, const QString& caption = QStringLiteral("evidence thumbnail"),
+                       uint64_t figureFrame = 100) {
     QImage image(kFrameWidth, kFrameHeight, QImage::Format_RGB32);
     image.fill(QColor(24, 28, 34));
     QPainter p(&image);
     p.setRenderHint(QPainter::Antialiasing, true);
     p.setPen(QPen(cam.tint, 4));
     p.drawRect(QRect(2, 2, kFrameWidth - 5, kFrameHeight - 5));
-    const QRectF box = figureBox(cam.camera.code, 100);
+    const QRectF box = figureBox(cam.camera.code, figureFrame);
     paintFigure(p, box);
     QFont big;
     big.setPixelSize(24);
@@ -352,7 +390,7 @@ private:
     small.setPixelSize(16);
     p.setFont(small);
     p.drawText(QRect(20, kFrameHeight - 46, kFrameWidth - 40, 26), Qt::AlignLeft | Qt::AlignVCenter,
-               QStringLiteral("evidence thumbnail · %1").arg(QDateTime::fromMSecsSinceEpoch(utcMs).toString(QStringLiteral("HH:mm:ss"))));
+               QStringLiteral("%1 · %2").arg(caption, QDateTime::fromMSecsSinceEpoch(utcMs).toString(QStringLiteral("HH:mm:ss"))));
     p.end();
     QByteArray jpeg;
     QBuffer buffer(&jpeg);
@@ -725,6 +763,7 @@ private:
     });
 
     registerM3Routes();
+    registerSearchRoutes();
 
     server_.route("/v1/service/shutdown", Method::Post, [guard](const QHttpServerRequest& req) {
       std::optional<QHttpServerResponse> denied;
@@ -973,6 +1012,193 @@ private:
     });
   }
 
+  const fovea::RecordingSegment* segmentOf(const StubCamera& cam, int n) const {
+    const QString id = QStringLiteral("seg-%1-%2").arg(cam.camera.code.toLower()).arg(n);
+    for (const fovea::RecordingSegment& s : cam.segments)
+      if (s.id == id) return &s;
+    return nullptr;
+  }
+
+  struct FixtureRange {
+    const SearchFixture* fixture = nullptr;
+    const StubCamera* camera = nullptr;
+    const fovea::RecordingSegment* segment = nullptr;
+    int index = 0;
+    int64_t startUtcMs = 0;
+  };
+
+  std::optional<FixtureRange> fixtureRange(int index) const {
+    if (index < 0 || index >= kSearchFixtureCount) return std::nullopt;
+    FixtureRange r;
+    r.fixture = &kSearchFixtures[index];
+    r.index = index;
+    r.camera = cameraByCode(QString::fromLatin1(r.fixture->code));
+    r.segment = r.camera ? segmentOf(*r.camera, r.fixture->segment) : nullptr;
+    if (!r.segment) return std::nullopt;
+    r.startUtcMs = r.segment->startUtcMs + r.fixture->offsetSeconds * kSecondMs;
+    return r;
+  }
+
+  static int64_t recordId(int fixture, int sample) { return kRecordIdBase + fixture * kRecordsPerRange + sample; }
+
+  static double sampleRelevance(const SearchFixture& f, int sample) {
+    const int peak = f.samples / 2;
+    return std::round((f.relevance - 0.004 * std::abs(sample - peak)) * 1e4) / 1e4;
+  }
+
+  QJsonObject sampleJson(const FixtureRange& r, int sample) const {
+    return {{"record_id", num(recordId(r.index, sample))}, {"camera_id", r.camera->camera.id},
+            {"segment_id", r.segment->id}, {"utc_ms", num(r.startUtcMs + sample * kSecondMs)},
+            {"relevance", sampleRelevance(*r.fixture, sample)}};
+  }
+
+  QJsonArray searchResults(const QStringList& cameraIds, int64_t from, int64_t to, int limit) const {
+    QJsonArray out;
+    for (int i = 0; i < kSearchFixtureCount && out.size() < limit; ++i) {
+      const std::optional<FixtureRange> r = fixtureRange(i);
+      if (!r || (!cameraIds.isEmpty() && !cameraIds.contains(r->camera->camera.id))) continue;
+      const int64_t end = r->startUtcMs + r->fixture->samples * kSecondMs;
+      if (end <= from || r->startUtcMs >= to) continue;
+      QJsonArray samples;
+      for (int sample = 0; sample < r->fixture->samples; ++sample) samples.push_back(sampleJson(*r, sample));
+      QJsonObject representative = sampleJson(*r, r->fixture->samples / 2);
+      representative.insert("thumbnail",
+                            QStringLiteral("/v1/search/thumbnails/%1").arg(recordId(i, r->fixture->samples / 2)));
+      out.push_back(QJsonObject{{"camera_id", r->camera->camera.id}, {"start_utc_ms", num(r->startUtcMs)},
+                                {"end_utc_ms", num(end)}, {"relevance", r->fixture->relevance},
+                                {"representative", representative}, {"samples", samples},
+                                {"evidence_state", QString::fromLatin1(r->fixture->evidenceState)}});
+    }
+    return out;
+  }
+
+  QJsonObject searchResponse(const QString& query, const QJsonObject& filters, const QStringList& cameraIds,
+                             int64_t from, int64_t to, int limit, int delayMs) {
+    const bool empty = query.contains(QLatin1StringView("[empty]"));
+    const QJsonArray results = empty ? QJsonArray() : searchResults(cameraIds, from, to, limit);
+    const int cameras = cameraIds.isEmpty() ? static_cast<int>(order_.size()) : static_cast<int>(cameraIds.size());
+    const double coverage = empty ? 0.0 : kSearchCoverage;
+    const double hours = static_cast<double>(to - from) / 3.6e6 * cameras * coverage;
+    const int64_t scanned = static_cast<int64_t>(hours * 3600.0);
+    const int64_t expected = coverage > 0 ? static_cast<int64_t>(static_cast<double>(scanned) / coverage) : 0;
+    const QJsonObject stats{{"samples_scanned", num(scanned)},
+                            {"samples_unreadable", 0},
+                            {"candidates", static_cast<int>(results.size()) * 4},
+                            {"frames_expected", num(expected)},
+                            {"frames_indexed", num(scanned)},
+                            {"sample_interval_ms", 1000},
+                            {"hours_scanned", std::round(hours * 100.0) / 100.0}, {"coverage_ratio", coverage},
+                            {"embed_ms", 160}, {"scan_ms", std::max(0, delayMs - 200)}, {"total_ms", delayMs}};
+    const QString id = uuid();
+    const QJsonObject response{{"session_id", id}, {"query", query}, {"filters", filters}, {"results", results},
+                               {"stats", stats}, {"index_version", kIndexVersionHash},
+                               {"index_version_name", kIndexVersionName}, {"model", kIndexModel},
+                               {"model_revision", kIndexModelRevision},
+                               {"created_utc_ms", num(fovea::utcNowMs())}, {"scoring", "embedding_similarity"},
+                               {"note", "similarity only, not verified"}};
+    searchSessions_[id] = response;
+    return response;
+  }
+
+  void registerSearchRoutes() {
+    using Method = QHttpServerRequest::Method;
+
+    server_.route("/v1/search", Method::Post, [this](const QHttpServerRequest& req) -> QFuture<QHttpServerResponse> {
+      auto promise = std::make_shared<QPromise<QHttpServerResponse>>();
+      promise->start();
+      const QFuture<QHttpServerResponse> future = promise->future();
+      auto answer = [promise](QHttpServerResponse response) {
+        promise->addResult(std::move(response));
+        promise->finish();
+      };
+      if (!authorized(req)) {
+        answer(unauthorized());
+        return future;
+      }
+      const auto b = body(req);
+      if (!b) {
+        answer(fail(Status::BadRequest, "bad_json", "body must be a JSON object"));
+        return future;
+      }
+      const QString query = b->value("query").toString().trimmed();
+      const int64_t from = static_cast<int64_t>(b->value("from_utc_ms").toDouble());
+      const int64_t to = static_cast<int64_t>(b->value("to_utc_ms").toDouble());
+      QStringList cameraIds;
+      for (const QJsonValue& v : b->value("camera_ids").toArray()) cameraIds << v.toString();
+      const bool unknownCamera = std::any_of(cameraIds.begin(), cameraIds.end(), [this](const QString& id) { return !camera(id); });
+      QString invalid;
+      const int limit = b->value("limit").toInt(kSearchLimitDefault);
+      if (query.isEmpty()) invalid = QStringLiteral("invalid_search:query is required");
+      else if (to <= from) invalid = QStringLiteral("invalid_search:to_utc_ms is before from_utc_ms");
+      else if (limit < 1 || limit > kSearchLimitMax)
+        invalid = QStringLiteral("invalid_search:limit must be between 1 and %1").arg(kSearchLimitMax);
+      else if (unknownCamera) invalid = QStringLiteral("unknown_camera:camera_ids names an unknown camera");
+      if (!invalid.isEmpty()) {
+        answer(fail(Status::BadRequest, invalid.section(QLatin1Char(':'), 0, 0), invalid.section(QLatin1Char(':'), 1)));
+        return future;
+      }
+      report(QStringLiteral("STUB search \"%1\" cameras=%2 range_ms=%3 limit=%4 min_gap_ms=%5")
+                 .arg(query).arg(cameraIds.size()).arg(to - from).arg(limit).arg(b->value("min_gap_ms").toInt()));
+      const int delayMs = query.contains(QLatin1StringView("[slow]")) ? kSlowSearchDelayMs : kSearchDelayMs;
+      QTimer::singleShot(delayMs, this, [this, answer, query, filters = *b, cameraIds, from, to, limit, delayMs] {
+        if (query.contains(QLatin1StringView("[error]"))) {
+          answer(fail(Status::ServiceUnavailable, "embed_unavailable", "text embedding did not answer within 3 s (stub)"));
+          return;
+        }
+        answer(json(searchResponse(query, filters, cameraIds, from, to, limit, delayMs)));
+      });
+      return future;
+    });
+
+    server_.route("/v1/search/<arg>", Method::Get, [this](const QString& id, const QHttpServerRequest& req) {
+      if (!authorized(req)) return unauthorized();
+      const auto it = searchSessions_.find(id);
+      if (it == searchSessions_.end()) return fail(Status::NotFound, "not_found", "no such search session");
+      return json(it->second);
+    });
+
+    server_.route("/v1/search/thumbnails/<arg>", Method::Get, [this](const QString& id, const QHttpServerRequest& req) {
+      if (!authorized(req)) return unauthorized();
+      bool ok = false;
+      const int64_t record = id.toLongLong(&ok) - kRecordIdBase;
+      const std::optional<FixtureRange> r = ok && record >= 0 ? fixtureRange(static_cast<int>(record / kRecordsPerRange)) : std::nullopt;
+      const int sample = static_cast<int>(record % kRecordsPerRange);
+      if (!r || sample >= r->fixture->samples) return fail(Status::NotFound, "not_found", "no such embedding record");
+      return QHttpServerResponse(QByteArrayLiteral("image/jpeg"),
+                                 thumbnail(*r->camera, r->startUtcMs + sample * kSecondMs,
+                                           QStringLiteral("search sample %1").arg(id), static_cast<uint64_t>(record) * 37));
+    });
+
+    server_.route("/v1/index", Method::Get, [this](const QHttpServerRequest& req) {
+      if (!authorized(req)) return unauthorized();
+      QJsonArray cameras;
+      for (int i = 0; i < order_.size(); ++i) {
+        const StubCamera* cam = camera(order_[i]);
+        const int64_t expected = 7380;
+        const int64_t indexed = i == 0 ? expected : expected * 62 / 100;
+        cameras.push_back(QJsonObject{{"camera_id", cam->camera.id}, {"index_enabled", true},
+                                      {"frames_expected", num(expected)}, {"frames_indexed", num(indexed)},
+                                      {"coverage_ratio", static_cast<double>(indexed) / static_cast<double>(expected)}});
+      }
+      const QJsonObject queue{{"queued", 3}, {"running", 1}, {"done", 214}, {"failed", 0}, {"skipped", 2}};
+      const QJsonObject version{{"hash", kIndexVersionHash}, {"name", kIndexVersionName}, {"model_id", kIndexModel},
+                                {"model_revision", kIndexModelRevision}, {"dims", 768}, {"dtype", "float32"},
+                                {"sample_interval_ms", 1000}, {"active", true}, {"previous", false}, {"queue", queue},
+                                {"coverage_ratio", 0.81}, {"frames_indexed", 214 * 30}, {"footage_ms", 214 * 30000},
+                                {"compute_ms", 214 * 7000}};
+      return json(QJsonObject{{"active_index_version", kIndexVersionName}, {"previous_index_version", QString()},
+                              {"index_version", kIndexVersionHash}, {"model", kIndexModel},
+                              {"sample_interval_ms", 1000}, {"state", "indexing"}, {"last_error", QString()},
+                              {"versions", QJsonArray{version}},
+                              {"known_index_version_names", QJsonArray{kIndexVersionName, "qwen3vl-emb-2b-1024"}},
+                              {"cameras", cameras}, {"queue", queue},
+                              {"throughput", QJsonObject{{"footage_ms", num(214 * 30000)}, {"compute_ms", num(214 * 7000)},
+                                                         {"frames_indexed", num(214 * 30)},
+                                                         {"compute_s_per_footage_hour", 233.3}, {"realtime_factor", 15.4}}},
+                              {"recent_failures", QJsonArray{}}, {"running_job", QJsonValue::Null}});
+    });
+  }
+
   static void paintFigure(QPainter& p, const QRectF& box) {
     const QRectF px(box.left() * kFrameWidth, box.top() * kFrameHeight, box.width() * kFrameWidth, box.height() * kFrameHeight);
     p.save();
@@ -1109,6 +1335,7 @@ private:
   std::vector<std::unique_ptr<StubEvent>> events_;
   // Console id -> first pending poll (utc ms); 0 once its live alert was raised.
   std::map<QString, int64_t> consolesSeen_;
+  std::map<QString, QJsonObject> searchSessions_;
   // Set by POST /v1/test/events-delay: how long GET /v1/events holds its answer.
   int eventsDelayMs_ = 0;
   QTimer frameTimer_;

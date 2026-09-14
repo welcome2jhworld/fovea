@@ -1,0 +1,542 @@
+{
+ "platform": "darwin",
+ "machine": "arm64",
+ "cpu_count": 10,
+ "inputs": 4,
+ "source": {
+  "pattern": "ball",
+  "width": 640,
+  "height": 360,
+  "fps": 25
+ },
+ "segment_seconds": 30,
+ "soak_minutes": 3.0,
+ "loadavg_start": [
+  3.21,
+  3.4,
+  3.44
+ ],
+ "time_to_all_online_s": 1.29,
+ "soak": {
+  "samples": [
+   {
+    "t_s": 30.0,
+    "process": {
+     "rss_mb": 88.5,
+     "cpu_percent": 17.0,
+     "cpu_time_ms": 5791
+    },
+    "ps": {
+     "rss_mb": 88.5,
+     "cpu_pct": 16.2
+    },
+    "cameras": [
+     {
+      "state": "online",
+      "fps_new": 25,
+      "latency_p95_ms": 1.63,
+      "drops": 0,
+      "queue_depth": 0,
+      "queue_max": 5,
+      "recording": "recording",
+      "finalized": 1
+     },
+     {
+      "state": "online",
+      "fps_new": 25,
+      "latency_p95_ms": 1.77,
+      "drops": 0,
+      "queue_depth": 0,
+      "queue_max": 5,
+      "recording": "recording",
+      "finalized": 1
+     },
+     {
+      "state": "online",
+      "fps_new": 25,
+      "latency_p95_ms": 1.98,
+      "drops": 0,
+      "queue_depth": 0,
+      "queue_max": 5,
+      "recording": "recording",
+      "finalized": 1
+     },
+     {
+      "state": "online",
+      "fps_new": 25,
+      "latency_p95_ms": 1.62,
+      "drops": 0,
+      "queue_depth": 0,
+      "queue_max": 5,
+      "recording": "recording",
+      "finalized": 1
+     }
+    ]
+   },
+   {
+    "t_s": 60.0,
+    "process": {
+     "rss_mb": 124.0,
+     "cpu_percent": 24.8,
+     "cpu_time_ms": 13240
+    },
+    "ps": {
+     "rss_mb": 124.0,
+     "cpu_pct": 20.6
+    },
+    "cameras": [
+     {
+      "state": "online",
+      "fps_new": 25,
+      "latency_p95_ms": 1.72,
+      "drops": 0,
+      "queue_depth": 0,
+      "queue_max": 5,
+      "recording": "recording",
+      "finalized": 2
+     },
+     {
+      "state": "online",
+      "fps_new": 25,
+      "latency_p95_ms": 2.14,
+      "drops": 0,
+      "queue_depth": 0,
+      "queue_max": 5,
+      "recording": "recording",
+      "finalized": 2
+     },
+     {
+      "state": "online",
+      "fps_new": 25,
+      "latency_p95_ms": 2.16,
+      "drops": 0,
+      "queue_depth": 0,
+      "queue_max": 5,
+      "recording": "recording",
+      "finalized": 2
+     },
+     {
+      "state": "online",
+      "fps_new": 25,
+      "latency_p95_ms": 1.7,
+      "drops": 0,
+      "queue_depth": 0,
+      "queue_max": 5,
+      "recording": "recording",
+      "finalized": 2
+     }
+    ]
+   },
+   {
+    "t_s": 90.0,
+    "process": {
+     "rss_mb": 124.4,
+     "cpu_percent": 26.2,
+     "cpu_time_ms": 21109
+    },
+    "ps": {
+     "rss_mb": 124.4,
+     "cpu_pct": 23.2
+    },
+    "cameras": [
+     {
+      "state": "online",
+      "fps_new": 25,
+      "latency_p95_ms": 1.97,
+      "drops": 0,
+      "queue_depth": 0,
+      "queue_max": 5,
+      "recording": "recording",
+      "finalized": 3
+     },
+     {
+      "state": "online",
+      "fps_new": 25,
+      "latency_p95_ms": 1.84,
+      "drops": 0,
+      "queue_depth": 0,
+      "queue_max": 5,
+      "recording": "recording",
+      "finalized": 3
+     },
+     {
+      "state": "online",
+      "fps_new": 25,
+      "latency_p95_ms": 1.86,
+      "drops": 0,
+      "queue_depth": 0,
+      "queue_max": 5,
+      "recording": "recording",
+      "finalized": 3
+     },
+     {
+      "state": "online",
+      "fps_new": 25,
+      "latency_p95_ms": 1.79,
+      "drops": 0,
+      "queue_depth": 0,
+      "queue_max": 5,
+      "recording": "recording",
+      "finalized": 3
+     }
+    ]
+   },
+   {
+    "t_s": 120.0,
+    "process": {
+     "rss_mb": 128.2,
+     "cpu_percent": 27.4,
+     "cpu_time_ms": 29333
+    },
+    "ps": {
+     "rss_mb": 128.2,
+     "cpu_pct": 19.5
+    },
+    "cameras": [
+     {
+      "state": "online",
+      "fps_new": 25,
+      "latency_p95_ms": 1.81,
+      "drops": 0,
+      "queue_depth": 0,
+      "queue_max": 5,
+      "recording": "recording",
+      "finalized": 4
+     },
+     {
+      "state": "online",
+      "fps_new": 25,
+      "latency_p95_ms": 1.97,
+      "drops": 0,
+      "queue_depth": 0,
+      "queue_max": 5,
+      "recording": "recording",
+      "finalized": 4
+     },
+     {
+      "state": "online",
+      "fps_new": 25,
+      "latency_p95_ms": 2.17,
+      "drops": 0,
+      "queue_depth": 0,
+      "queue_max": 5,
+      "recording": "recording",
+      "finalized": 4
+     },
+     {
+      "state": "online",
+      "fps_new": 25,
+      "latency_p95_ms": 1.77,
+      "drops": 0,
+      "queue_depth": 0,
+      "queue_max": 5,
+      "recording": "recording",
+      "finalized": 4
+     }
+    ]
+   },
+   {
+    "t_s": 150.0,
+    "process": {
+     "rss_mb": 142.1,
+     "cpu_percent": 25.7,
+     "cpu_time_ms": 37030
+    },
+    "ps": {
+     "rss_mb": 142.1,
+     "cpu_pct": 24.3
+    },
+    "cameras": [
+     {
+      "state": "online",
+      "fps_new": 25,
+      "latency_p95_ms": 2.11,
+      "drops": 0,
+      "queue_depth": 0,
+      "queue_max": 5,
+      "recording": "recording",
+      "finalized": 5
+     },
+     {
+      "state": "online",
+      "fps_new": 25,
+      "latency_p95_ms": 2.17,
+      "drops": 0,
+      "queue_depth": 0,
+      "queue_max": 5,
+      "recording": "recording",
+      "finalized": 5
+     },
+     {
+      "state": "online",
+      "fps_new": 25,
+      "latency_p95_ms": 1.99,
+      "drops": 0,
+      "queue_depth": 0,
+      "queue_max": 5,
+      "recording": "recording",
+      "finalized": 5
+     },
+     {
+      "state": "online",
+      "fps_new": 25,
+      "latency_p95_ms": 1.76,
+      "drops": 0,
+      "queue_depth": 0,
+      "queue_max": 5,
+      "recording": "recording",
+      "finalized": 5
+     }
+    ]
+   },
+   {
+    "t_s": 180.0,
+    "process": {
+     "rss_mb": 144.7,
+     "cpu_percent": 25.2,
+     "cpu_time_ms": 44602
+    },
+    "ps": {
+     "rss_mb": 144.7,
+     "cpu_pct": 19.1
+    },
+    "cameras": [
+     {
+      "state": "online",
+      "fps_new": 25,
+      "latency_p95_ms": 1.91,
+      "drops": 0,
+      "queue_depth": 0,
+      "queue_max": 5,
+      "recording": "recording",
+      "finalized": 6
+     },
+     {
+      "state": "online",
+      "fps_new": 25,
+      "latency_p95_ms": 1.94,
+      "drops": 0,
+      "queue_depth": 0,
+      "queue_max": 5,
+      "recording": "recording",
+      "finalized": 6
+     },
+     {
+      "state": "online",
+      "fps_new": 25,
+      "latency_p95_ms": 1.91,
+      "drops": 0,
+      "queue_depth": 0,
+      "queue_max": 5,
+      "recording": "recording",
+      "finalized": 6
+     },
+     {
+      "state": "online",
+      "fps_new": 25,
+      "latency_p95_ms": 1.71,
+      "drops": 0,
+      "queue_depth": 0,
+      "queue_max": 5,
+      "recording": "recording",
+      "finalized": 6
+     }
+    ]
+   }
+  ],
+  "per_camera": [
+   {
+    "fps_mean": 25,
+    "fps_min": 25,
+    "latency_p95_ms_median": 1.86,
+    "latency_p95_ms_max": 2.11,
+    "drops_end": 0,
+    "queue_depth_max": 0,
+    "finalized_start": 0,
+    "finalized_end": 6,
+    "segments_per_minute": 2.0
+   },
+   {
+    "fps_mean": 25,
+    "fps_min": 25,
+    "latency_p95_ms_median": 1.96,
+    "latency_p95_ms_max": 2.17,
+    "drops_end": 0,
+    "queue_depth_max": 0,
+    "finalized_start": 0,
+    "finalized_end": 6,
+    "segments_per_minute": 2.0
+   },
+   {
+    "fps_mean": 25,
+    "fps_min": 25,
+    "latency_p95_ms_median": 1.98,
+    "latency_p95_ms_max": 2.17,
+    "drops_end": 0,
+    "queue_depth_max": 0,
+    "finalized_start": 0,
+    "finalized_end": 6,
+    "segments_per_minute": 2.0
+   },
+   {
+    "fps_mean": 25,
+    "fps_min": 25,
+    "latency_p95_ms_median": 1.73,
+    "latency_p95_ms_max": 1.79,
+    "drops_end": 0,
+    "queue_depth_max": 0,
+    "finalized_start": 0,
+    "finalized_end": 6,
+    "segments_per_minute": 2.0
+   }
+  ],
+  "rss_mb_start": 87.7,
+  "rss_mb_after_first_minute": 124.0,
+  "rss_mb_end": 144.7,
+  "rss_growth_pct_after_first_minute": 16.7,
+  "cpu_percent_avg": 24.4,
+  "cpu_percent_samples_max": 27.4,
+  "duration_s": 180.0
+ },
+ "crash_restart": {
+  "restart_to_all_online_s": 1.09,
+  "recovery_log": "recovery: sessions closed 4, gaps closed 0, segments finalized 4, damaged 0, missing 0, files adopted 0, quarantined 0, purged 0, rings removed 4",
+  "killed_session_rings_left": 0,
+  "open_sessions_not_current": 0,
+  "recording_rows_not_current": 0
+ },
+ "console_closed": {
+  "console_exit_code": 0,
+  "console_run_s": 6.3,
+  "screenshot_bytes": 58339,
+  "core_still_running": true,
+  "cameras_finalized_after_console_exit": 4,
+  "all_online_recording": true
+ },
+ "disk_floor": {
+  "floor_mb": 110508,
+  "free_mb": 10508,
+  "states": [
+   [
+    "online",
+    "paused_disk"
+   ],
+   [
+    "online",
+    "paused_disk"
+   ],
+   [
+    "online",
+    "paused_disk"
+   ],
+   [
+    "online",
+    "paused_disk"
+   ]
+  ],
+  "fps": [
+   25,
+   25,
+   25,
+   25
+  ],
+  "ring_probe": [
+   {
+    "frames": 50,
+    "fps": 25.0,
+    "latency_ms_p95": 4.9
+   },
+   {
+    "frames": 51,
+    "fps": 25.5,
+    "latency_ms_p95": 5.1
+   },
+   {
+    "frames": 51,
+    "fps": 25.5,
+    "latency_ms_p95": 4.91
+   },
+   {
+    "frames": 51,
+    "fps": 25.5,
+    "latency_ms_p95": 6.6
+   }
+  ],
+  "segment_rows_created": 0,
+  "storage_floor_unreachable": true,
+  "storage_deleted_last_run": 0,
+  "disk_floor_deletions": 0,
+  "resume_s": 1.1,
+  "resumed_rows": [
+   1,
+   1,
+   1,
+   1
+  ]
+ },
+ "retention": {
+  "retention_seconds": 120,
+  "crash_left_file": true,
+  "recovery_log": "recovery: sessions closed 0, gaps closed 0, segments finalized 0, damaged 0, missing 0, files adopted 0, quarantined 0, purged 1, rings removed 0",
+  "crashed_file_removed": true,
+  "crashed_row_purged": true,
+  "deleted_last_run": 11,
+  "deleted_mb_last_run": 17.7,
+  "held_last_run": 1,
+  "age_rows_deleted_in_run": 11,
+  "files_left_for_age_deleted": 0,
+  "finalized_older_than_cutoff": [
+   "ffc79158-ffaf-4c1c-91ca-917b5cb02fbc"
+  ],
+  "held_state": "finalized",
+  "held_file_exists": true,
+  "audit_rows_match": true,
+  "camera0_oldest_is_held": true,
+  "storage_per_camera": [
+   {
+    "bytes": 8761855,
+    "segments": 9,
+    "oldest_utc_ms": 1789344556415,
+    "retention_days": 7,
+    "max_bytes": 0,
+    "age_limit_ms": 120000
+   },
+   {
+    "bytes": 6986554,
+    "segments": 7,
+    "oldest_utc_ms": 1789344646415,
+    "retention_days": 7,
+    "max_bytes": 0,
+    "age_limit_ms": 120000
+   },
+   {
+    "bytes": 7023516,
+    "segments": 8,
+    "oldest_utc_ms": 1789344646416,
+    "retention_days": 7,
+    "max_bytes": 0,
+    "age_limit_ms": 120000
+   },
+   {
+    "bytes": 6860270,
+    "segments": 8,
+    "oldest_utc_ms": 1789344646415,
+    "retention_days": 7,
+    "max_bytes": 0,
+    "age_limit_ms": 120000
+   }
+  ],
+  "put_retention_days": 3,
+  "put_invalid_retention_status": 400,
+  "max_bytes_deleted": 7,
+  "max_bytes_left_before_run": 0,
+  "max_bytes_deleted_last_run": 7
+ },
+ "loadavg_end": [
+  2.87,
+  3.07,
+  3.27
+ ],
+ "failures": [],
+ "result": "PASS"
+}

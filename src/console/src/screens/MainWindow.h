@@ -20,6 +20,7 @@ class CameraSettingsDialog;
 class DialogHost;
 class MainTabBar;
 class MonitorScreen;
+class SearchScreen;
 class TitleBar;
 
 class MainWindow : public QMainWindow {
@@ -30,7 +31,9 @@ public:
 
   // Test hook: "camera-dialog", "camera-dialog-test", "camera-dialog-test-fail" or "playback"
   // opens that dialog once cameras arrive; "alerts", "alert-detail", "rule-editor" and
-  // "monitor-feed" open those views once rules and events arrive too.
+  // "monitor-feed" open those views once rules and events arrive too. "search",
+  // "search-results", "search-empty" and "search-error" run a query the stub service
+  // holds, answers, answers without results or fails.
   void setScreenshotView(const QString& view) { screenshotView_ = view; }
 
 protected:
@@ -44,6 +47,7 @@ protected:
 private:
   static constexpr int kResizeGrip = 6;
   static constexpr int kExitDrainMs = 1500;
+  static constexpr int kSearchTab = 1;
   static constexpr int kAlertsTab = 2;
   Qt::Edges edgesAt(const QPoint& pos) const;
   void toggleMaximized();
@@ -53,6 +57,7 @@ private:
   void openPlayback(const fovea::RecordingSegment& segment, const QString& cameraLabel);
   void openScreenshotView();
   void openAlertsScreenshotView();
+  void openSearchScreenshotView();
   void openEventInAlerts(const QString& eventId);
 
   CoreClient client_;
@@ -61,10 +66,12 @@ private:
   EventStore events_;
   AlertDispatcher dispatcher_;
   ThumbnailCache thumbnails_;
+  ThumbnailCache searchThumbnails_;
   TitleBar* titleBar_ = nullptr;
   MainTabBar* tabBar_ = nullptr;
   QStackedWidget* stack_ = nullptr;
   MonitorScreen* monitor_ = nullptr;
+  SearchScreen* searchScreen_ = nullptr;
   AlertsScreen* alertsScreen_ = nullptr;
   DialogHost* dialogs_ = nullptr;
   QVector<fovea::Camera> cameras_;

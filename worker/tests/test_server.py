@@ -152,10 +152,13 @@ class ServerRoutingTest(unittest.TestCase):
         self.assertEqual(body["model"], "dry")
         self.assertEqual(body["contract_violations"], [])
 
-    def test_embed_frames_is_not_implemented(self):
-        code, body = self._call("POST", "/v1/jobs", self._job("embed_frames"))
-        self.assertEqual(code, 501)
-        self.assertEqual(body["error"]["code"], "not_implemented")
+    def test_embed_jobs_without_an_embedder_are_unavailable(self):
+        code, body = self._call("POST", "/v1/jobs", self._job("embed_frames", index_version_name="siglip2-b16-224"))
+        self.assertEqual(code, 503)
+        self.assertEqual(body["error"]["code"], "backend_unavailable")
+        _, health = self._call("GET", "/v1/health")
+        self.assertEqual((health["embedder"], health["embed_state"]), (None, "unavailable"))
+        self.assertEqual(health["embed_versions"], {})
 
     def test_job_waiting_past_its_deadline_is_refused(self):
         with self.server.state.locks["detect"]:

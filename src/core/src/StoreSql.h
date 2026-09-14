@@ -14,4 +14,8 @@ inline QVariant integer(int64_t v) { return QVariant(static_cast<qlonglong>(v));
 // evidence refs and analysis coverage.
 QStringList analyticsSchemaStatements();
 
+// Schema version 4: index versions and jobs, embedding records, search
+// sessions, imports and the cameras' index_enabled column.
+QStringList indexSchemaStatements();
+
 }

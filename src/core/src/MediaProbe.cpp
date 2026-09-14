@@ -95,35 +95,42 @@ SegmentProbe probeSegmentFile(const QString& path) {
   return probe;
 }
 
-QString probeVideoCodec(const QString& path) {
+MediaInfo probeMedia(const QString& path) {
+  MediaInfo media;
   GError* err = nullptr;
   GstDiscoverer* discoverer = gst_discoverer_new(kDiscoverTimeout, &err);
   if (!discoverer) {
     if (err) g_error_free(err);
-    return {};
+    return media;
   }
   const QByteArray uri = QUrl::fromLocalFile(QFileInfo(path).absoluteFilePath()).toEncoded();
   GstDiscovererInfo* info = gst_discoverer_discover_uri(discoverer, uri.constData(), &err);
   if (err) g_error_free(err);
-  QString codec;
   if (info) {
     GList* streams = gst_discoverer_info_get_video_streams(info);
     if (streams) {
-      GstCaps* caps = gst_discoverer_stream_info_get_caps(GST_DISCOVERER_STREAM_INFO(streams->data));
+      GstDiscovererStreamInfo* stream = GST_DISCOVERER_STREAM_INFO(streams->data);
+      GstCaps* caps = gst_discoverer_stream_info_get_caps(stream);
       if (caps && gst_caps_get_size(caps) > 0) {
         const QString name = QString::fromLatin1(gst_structure_get_name(gst_caps_get_structure(caps, 0)));
-        if (name == QLatin1String("video/x-h264")) codec = QStringLiteral("h264");
-        else if (name == QLatin1String("video/x-h265")) codec = QStringLiteral("h265");
-        else codec = QStringLiteral("unsupported:") + name;
+        if (name == QLatin1String("video/x-h264")) media.codec = QStringLiteral("h264");
+        else if (name == QLatin1String("video/x-h265")) media.codec = QStringLiteral("h265");
+        else media.codec = QStringLiteral("unsupported:") + name;
       }
       if (caps) gst_caps_unref(caps);
+      media.width = static_cast<int>(gst_discoverer_video_info_get_width(GST_DISCOVERER_VIDEO_INFO(stream)));
+      media.height = static_cast<int>(gst_discoverer_video_info_get_height(GST_DISCOVERER_VIDEO_INFO(stream)));
+      const GstClockTime duration = gst_discoverer_info_get_duration(info);
+      if (GST_CLOCK_TIME_IS_VALID(duration)) media.durationNs = static_cast<int64_t>(duration);
     }
     gst_discoverer_stream_info_list_free(streams);
     gst_discoverer_info_unref(info);
   }
   g_object_unref(discoverer);
-  return codec;
+  return media;
 }
+
+QString probeVideoCodec(const QString& path) { return probeMedia(path).codec; }
 
 QString codecDisplayName(const QString& capsName) {
   const QString name = capsName.trimmed();

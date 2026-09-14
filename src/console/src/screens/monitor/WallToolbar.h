@@ -1,5 +1,6 @@
 #pragma once
 #include "screens/monitor/WallLayout.h"
+#include "widgets/SelectButton.h"
 #include <QAbstractButton>
 #include <QIcon>
 #include <QVector>
@@ -10,23 +11,6 @@ class QToolButton;
 namespace fovea::ui {
 
 class LayoutPopup;
-
-// Select-style trigger with a separately coloured caret (QSS allows one colour per widget).
-class SelectButton : public QAbstractButton {
-  Q_OBJECT
-public:
-  explicit SelectButton(QWidget* parent = nullptr);
-  void setLabel(const QString& label);
-  QSize sizeHint() const override;
-
-protected:
-  void paintEvent(QPaintEvent* event) override;
-
-private:
-  QString label_;
-  QIcon caretClosed_;
-  QIcon caretOpen_;
-};
 
 // "Rules: N applied ▾": prefix primary, count accent, caret muted.
 class RulesButton : public QAbstractButton {

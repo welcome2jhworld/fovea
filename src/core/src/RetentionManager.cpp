@@ -132,6 +132,10 @@ void RetentionManager::sweep(Pass& pass, const QString& cameraId, std::optional<
             Store::removeEvidenceFiles(marked.thumbnails, config_.dataDir + QStringLiteral("/evidence"));
             qInfo("retention: segment %s deleted, %d evidence refs marked deleted", qPrintable(seg.id), marked.refs);
           }
+          if (marked.embeddings > 0) {
+            Store::removeIndexFiles(marked.indexThumbnails, config_.dataDir + QStringLiteral("/index"));
+            qInfo("retention: segment %s deleted, %d search index records marked deleted", qPrintable(seg.id), marked.embeddings);
+          }
           if (!store_.removeDeletedSegmentFile(seg.id, seg.path, config_.recordingsDir, pass.nowUtcMs))
             qWarning("retention: segment %s deleted, file removal pending: %s", qPrintable(seg.id), qPrintable(store_.lastError()));
           onDeleted(seg, fileBytes);

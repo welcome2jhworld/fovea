@@ -7,12 +7,16 @@
 #include "fovea/core/ApiServer.h"
 #include "fovea/core/CameraManager.h"
 #include "fovea/core/CameraPipeline.h"
+#include "fovea/core/EmbedClient.h"
 #include "fovea/core/EventService.h"
 #include "fovea/core/EvidenceService.h"
+#include "fovea/core/ImportManager.h"
+#include "fovea/core/IndexScheduler.h"
 #include "fovea/core/MediaProbe.h"
 #include "fovea/core/PlaybackManager.h"
 #include "fovea/core/RetentionManager.h"
 #include "fovea/core/RuleEngine.h"
+#include "fovea/core/SearchService.h"
 #include "fovea/core/SecretStore.h"
 #include "fovea/core/Store.h"
 #include "fovea/core/SystemStats.h"
@@ -140,7 +144,12 @@ int main(int argc, char** argv) {
                        [&scheduler](const QString& id) { scheduler.bumpGeneration(id); });
   scheduler.setSink([&rules](const fovea::core::AnalysisResult& result) { rules.onAnalysis(result); });
   scheduler.setHints([&rules](const QString& id) { return rules.detectHints(id); });
-  fovea::core::ApiServer api(cameras, playback, retention, store, {rules, events, scheduler, worker}, token);
+  fovea::core::EmbedClient embed(worker);
+  fovea::core::IndexScheduler index(store, embed, config.dataDir);
+  fovea::core::SearchService search(store, embed, index);
+  fovea::core::ImportManager imports(store, config);
+  imports.recover();
+  fovea::core::ApiServer api(cameras, playback, retention, store, {rules, events, scheduler, worker}, {index, search, imports}, token);
   const int64_t startedUtcMs = fovea::utcNowMs();
   api.setStartedUtcMs(startedUtcMs);
   if (!api.listen(static_cast<quint16>(parser.value("port").toUInt()))) {
@@ -151,6 +160,8 @@ int main(int argc, char** argv) {
   auto shutdown = [&] {
     qInfo("shutting down");
     playback.closeAll();
+    imports.stopAll();
+    index.stop();
     cameras.stopAll([&worker] {
       worker.stop();
       QFile::remove(fovea::coreInfoPath());
@@ -192,6 +203,7 @@ int main(int argc, char** argv) {
   evidence.start();
   worker.start();
   scheduler.start();
+  index.start();
   qInfo("fovea-core listening on 127.0.0.1:%u, data %s", api.port(), qPrintable(fovea::dataDir()));
   const int rc = app.exec();
   g_logFile = nullptr;

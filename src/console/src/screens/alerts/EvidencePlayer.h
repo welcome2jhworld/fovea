@@ -29,6 +29,8 @@ public:
   ~EvidencePlayer() override;
 
   void setEvidence(const QString& cameraId, const std::optional<EvidenceInfo>& evidence);
+  // Play or pause the open channel, as the play glyph does.
+  void togglePlayback();
 
 protected:
   void resizeEvent(QResizeEvent* event) override;
@@ -54,7 +56,6 @@ private:
   void closeChannel();
   void poll();
   void apply(const fovea::PlaybackState& state);
-  void toggle();
   void seek(double fraction);
   void control(const QString& action, const QJsonObject& body = {});
   int64_t clipStartUtcMs() const;

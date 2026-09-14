@@ -61,3 +61,32 @@ Short records of choices that are not obvious from the code.
   long. Evidence protection is a separate `evidence_holds` table keyed by
   segment rather than a query over M3's evidence refs, so retention does not
   depend on how evidence windows map to segments.
+- D11 Default index version. Two embedding models were built behind one index
+  version contract (`siglip2-b16-224`, `qwen3vl-emb-2b-1024`) and the default
+  was chosen by a rule fixed before the evaluation ran (the milestone's run
+  plan; it is repeated in docs/M4_DESIGN.md so the repository carries it): the
+  higher Recall@5 on the final question set, on a tie the cheaper one to index.
+  SigLIP 2 won (1.000 against 0.917) at one fourteenth of the index cost, so it
+  is `search.active_index_version` by default; Qwen stays selectable per query
+  and per install (`PUT /v1/index/active`), because it separates negative
+  queries from positives by score and M5 may need that. Settings name index
+  versions, never hashes: the worker reports the descriptor hash with every
+  result, so a model revision change becomes a new version and a re-index
+  without any configuration edit (`docs/M4_DESIGN.md`).
+- D12 Indexing never waits for the live detector and vice versa. The worker's
+  embed lane is separate from the detection lane, index requests yield the
+  lane to a query between batches, and the core delays embed jobs until the
+  detector warm-up has ended, because loading a second Transformers model
+  while the detector's warm-up import runs in another thread broke both
+  imports and restarted the worker in a loop.
+- D13 Searches are bounded, not queued without limit. A scan streams the rows
+  of its range (it never holds them all) and at most two run at once, with four
+  more waiting and `503 search_busy` beyond that, because the console re-posts
+  a query on every filter change and only the newest answer is ever painted:
+  without the bound a burst of queries would each hold a mapping and a
+  candidate heap for results nobody reads, and would starve compaction, which
+  only runs while no scan does.
+- D14 Counting how much of a range a version covers walks that version's index,
+  so it never runs on the core thread: the choice between the active and the
+  previous version happens on a pool thread, and a query that names no version
+  and has no previous version to compare against counts nothing at all.

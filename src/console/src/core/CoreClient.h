@@ -4,6 +4,7 @@
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QObject>
+#include <QPointer>
 #include <QString>
 #include <cstdint>
 #include <functional>
@@ -26,6 +27,8 @@ public:
   using BytesCallback = std::function<void(bool ok, const QByteArray& body, const QString& error)>;
 
   static constexpr int kTimeoutMs = 5000;
+  // A query waits for the worker's text embedding (3 s deadline) and the vector scan.
+  static constexpr int kSearchTimeoutMs = 30000;
   // Headroom over the timeout_ms the core probes a camera for.
   static constexpr int kTestTimeoutMarginMs = 5000;
 
@@ -34,6 +37,8 @@ public:
   // Forget the cached port and token so the next request re-reads core.json.
   void resetEndpoint();
   bool endpointKnown() const { return port_ != 0; }
+  // Requests sent and not yet finished (an aborted request finishes at once).
+  int pendingRequests() const { return pending_; }
   QString baseUrl() const;
   // Runs the event loop until no request is outstanding or timeoutMs elapses; used on exit so
   // requests issued while closing (DELETE /v1/playback/{id}) reach the service.
@@ -77,6 +82,13 @@ public:
   void evidenceThumbnail(const QString& evidenceId, BytesCallback cb, QObject* context = nullptr);
   void shutdownService(Callback cb, QObject* context = nullptr);
 
+  // M4: search and index status (docs/M4_DESIGN.md "Query path"). The returned reply lets a
+  // newer query abort an older one; it is null when the service cannot be discovered.
+  QPointer<QNetworkReply> search(const QJsonObject& request, Callback cb, QObject* context = nullptr);
+  // The reply, so a caller that no longer needs the image can abort it.
+  QPointer<QNetworkReply> searchThumbnail(const QString& recordId, BytesCallback cb, QObject* context = nullptr);
+  void indexStatus(Callback cb, QObject* context = nullptr);
+
 signals:
   void drained();
 
@@ -90,10 +102,10 @@ private:
   using ResponseCallback = std::function<void(const Response& response)>;
 
   bool ensureEndpoint(QString& error);
-  void request(const QByteArray& verb, const QString& path, const QJsonDocument& body, int timeoutMs,
-               ResponseCallback cb, QObject* context);
-  void send(const QByteArray& verb, const QString& path, const QJsonDocument& body, Callback cb, QObject* context,
-            int timeoutMs = kTimeoutMs);
+  QNetworkReply* request(const QByteArray& verb, const QString& path, const QJsonDocument& body, int timeoutMs,
+                         ResponseCallback cb, QObject* context);
+  QNetworkReply* send(const QByteArray& verb, const QString& path, const QJsonDocument& body, Callback cb,
+                      QObject* context, int timeoutMs = kTimeoutMs);
 
   QNetworkAccessManager nam_;
   quint16 port_ = 0;

@@ -29,7 +29,7 @@ EvidencePlayer::EvidencePlayer(CoreClient& client, ThumbnailCache& thumbnails, Q
   controls_->hide();
   poll_.setInterval(kPollIntervalMs);
   connect(&poll_, &QTimer::timeout, this, &EvidencePlayer::poll);
-  connect(controls_, &PlaybackControls::toggleRequested, this, &EvidencePlayer::toggle);
+  connect(controls_, &PlaybackControls::toggleRequested, this, &EvidencePlayer::togglePlayback);
   connect(controls_, &PlaybackControls::seekRequested, this, &EvidencePlayer::seek);
   connect(&thumbnails_, &ThumbnailCache::thumbnailReady, this, [this](const QString& id) {
     if (!evidence_ || evidence_->id != id || evidence_->state == QLatin1StringView("deleted")) return;
@@ -218,7 +218,7 @@ void EvidencePlayer::control(const QString& action, const QJsonObject& body) {
   }, this);
 }
 
-void EvidencePlayer::toggle() {
+void EvidencePlayer::togglePlayback() {
   if (!channelOpen_) return;
   if (state_.playing) {
     playRequested_ = false;

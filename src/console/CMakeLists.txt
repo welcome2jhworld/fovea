@@ -34,6 +34,10 @@ qt_add_library(fovea-console STATIC
   src/core/AlertDispatcher.cpp
   src/core/ThumbnailCache.h
   src/core/ThumbnailCache.cpp
+  src/core/SearchTypes.h
+  src/core/SearchTypes.cpp
+  src/search/SearchLogic.h
+  src/search/SearchLogic.cpp
   src/alerts/AlertLogic.h
   src/alerts/AlertLogic.cpp
   src/video/WallTicker.h
@@ -91,6 +95,14 @@ qt_add_library(fovea-console STATIC
   src/screens/alerts/AlertDetailPanel.cpp
   src/screens/alerts/EvidencePlayer.h
   src/screens/alerts/EvidencePlayer.cpp
+  src/screens/search/SearchScreen.h
+  src/screens/search/SearchScreen.cpp
+  src/screens/search/ResultGrid.h
+  src/screens/search/ResultGrid.cpp
+  src/screens/search/SearchInspector.h
+  src/screens/search/SearchInspector.cpp
+  src/screens/search/CustomRangePopup.h
+  src/screens/search/CustomRangePopup.cpp
   src/util/Format.h
   src/util/Format.cpp
   src/widgets/ToggleSwitch.h
@@ -103,6 +115,8 @@ qt_add_library(fovea-console STATIC
   src/widgets/ToneChip.cpp
   src/widgets/FormField.h
   src/widgets/FormField.cpp
+  src/widgets/SelectButton.h
+  src/widgets/SelectButton.cpp
   src/dialogs/DialogFrame.h
   src/dialogs/DialogFrame.cpp
   src/dialogs/DialogHost.h

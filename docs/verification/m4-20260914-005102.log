@@ -1,0 +1,44 @@
+09:51:02 ok    camera classroom has index_enabled true by default
+09:51:02 ok    camera walking has index_enabled true by default
+09:51:02 ok    camera whitecar has index_enabled true by default
+09:51:02 ok    import of a missing file refused (400)
+09:51:03 ok    a second import over the same footage refused (409)
+09:51:03 ok    classroom: import done with 4 finalized segments
+09:51:03 ok    classroom: imported session anchored at start_utc_ms, footage 32.8 s of 32.80 s
+09:51:03 ok    walking: import done with 1 finalized segments
+09:51:03 ok    walking: imported session anchored at start_utc_ms, footage 53.916 s of 53.95 s
+09:51:03 ok    whitecar: import done with 4 finalized segments
+09:51:03 ok    whitecar: imported session anchored at start_utc_ms, footage 30.16 s of 30.21 s
+09:51:03 imports: {"classroom": {"state": "done", "error": "", "codec": "h264", "duration_s": 32.8, "segments": 4, "bytes": 13545151, "capture_clock": "imported", "import_ms": 23, "first_segment_offset_ms": 0, "last_segment_end_s": 32.8}, "walking": {"state": "done", "error": "", "codec": "h264", "duration_s": 53.952, "segments": 1, "bytes": 5165823, "capture_clock": "imported", "import_ms": 17, "first_segment_offset_ms": 0, "last_segment_end_s": 53.916}, "whitecar": {"state": "done", "error": "", "codec": "h264", "duration_s": 30.208, "segments": 4, "bytes": 2323615, "capture_clock": "imported", "import_ms": 17, "first_segment_offset_ms": 0, "last_segment_end_s": 30.16}}
+09:51:19 core killed mid-job: {'queue_at_kill': {'done': 4, 'failed': 0, 'queued': 4, 'running': 1, 'skipped': 0}, 'job_frames_sampled': 54, 'job_frames_stored': 32, 'job_generation_at_kill': 1, 'job_state_at_kill': 'running', 'job_live_rows_at_kill': 32}
+09:51:36 restart mid-index: {'queue_at_kill': {'done': 4, 'failed': 0, 'queued': 4, 'running': 1, 'skipped': 0}, 'job_frames_sampled': 54, 'job_frames_stored': 32, 'job_generation_at_kill': 1, 'job_state_at_kill': 'running', 'job_live_rows_at_kill': 32, 'resume_to_full_coverage_s': 16.4, 'index_version': 'b63a3a358815', 'live_records': 117, 'frames_expected': 117, 'duplicate_instants': 0, 'job_generation_after': 2, 'job_state_after': 'done', 'job_frames_indexed_after': 54, 'interrupted_attempt_rows_deleted': 32, 'recovery_logged': True}
+09:51:36 ok    the core was killed with 32 of 54 records of a running job stored
+09:51:36 ok    restart deleted the interrupted attempt's 32 records
+09:51:36 ok    the job ran again (generation 1 -> 2) and indexed 54 of 54
+09:51:36 ok    no sampled instant has two live records (0)
+09:51:36 ok    live records (117) equal expected samples (117) after resuming
+09:51:36 index: {"version": "b63a3a358815", "model": "google/siglip2-base-patch16-224", "model_revision": "75de2d55ec2d0b4efc50b3e9ad70dba96a7b2fa2", "dims": 768, "throughput": {"compute_ms": 5798, "compute_s_per_footage_hour": 178.6, "footage_ms": 116876, "frames_indexed": 117, "realtime_factor": 20.16}, "storage": {"row_payload_bytes": 54674, "rows": 117, "thumbnail_bytes": 913763, "vector_bytes": 361344}, "cameras": {"classroom": {"frames_expected": 33, "frames_indexed": 33, "coverage_ratio": 1}, "walking": {"frames_expected": 54, "frames_indexed": 54, "coverage_ratio": 1}, "whitecar": {"frames_expected": 30, "frames_indexed": 30, "coverage_ratio": 1}}}
+09:51:36 ok    classroom: answered by siglip2-b16-224 as similarity only
+09:51:36 ok    classroom: 'people sitting at desks in a classroom' ranks its video first (top: {'camera': 'classroom', 'start_s': 0.3, 'end_s': 32.8, 'relevance': 0.1502, 'samples': 33, 'evidence_state': 'available'})
+09:51:36 ok    classroom: coverage 1
+09:51:36 ok    walking: answered by siglip2-b16-224 as similarity only
+09:51:36 ok    walking: 'a person walking across an empty parking lot' ranks its video first (top: {'camera': 'walking', 'start_s': 19.3, 'end_s': 46.3, 'relevance': 0.2121, 'samples': 22, 'evidence_state': 'available'})
+09:51:36 ok    walking: coverage 1
+09:51:36 ok    whitecar: answered by siglip2-b16-224 as similarity only
+09:51:36 ok    whitecar: 'a white car on dark wet asphalt' ranks its video first (top: {'camera': 'whitecar', 'start_s': 22.3, 'end_s': 30.2, 'relevance': 0.1609, 'samples': 5, 'evidence_state': 'available'})
+09:51:36 ok    whitecar: coverage 1
+09:51:36 ok    camera filter keeps only that camera (8 results)
+09:51:36 ok    time filter keeps samples inside the window (10 scanned)
+09:51:36 ok    unknown camera refused (400)
+09:51:36 ok    stored session returns the same ranges
+09:51:36 ok    representative thumbnail is a JPEG (200, 5289 bytes)
+09:51:38 playback: {'offset_s': 42.3, 'frames_in_2s': 25, 'segment_start_offset_s': 0.0, 'position_s': 44.83}
+09:51:38 ok    playback at the result's utc delivered 25 frames in 2 s
+09:51:52 retention: {'classroom_live_records': 0, 'other_live_records': 84, 'thumbnails_left': 0, 'thumbnails_before': 33, 'stored_session_classroom_ranges': 0, 'thumbnail_status': 404, 'new_query_classroom_ranges': 0, 'new_query_top': {'camera': 'walking', 'start_s': 40.3, 'end_s': 41.3, 'relevance': 0.0386, 'samples': 1, 'evidence_state': 'available'}, 'walking_top': {'camera': 'walking', 'start_s': 40.3, 'end_s': 46.3, 'relevance': 0.2121, 'samples': 6, 'evidence_state': 'available'}, 'retention_audit': 4}
+09:51:52 ok    retention deleted the classroom records (0 live) and kept the others (84)
+09:51:52 ok    the classroom thumbnails were removed
+09:51:52 ok    the stored session no longer lists classroom ranges
+09:51:52 ok    a deleted record's thumbnail answers 404 (404)
+09:51:52 ok    a new query returns no classroom footage
+09:51:52 ok    the walking query still ranks its video first
+09:51:53 PASS

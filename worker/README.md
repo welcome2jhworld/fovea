@@ -1,7 +1,8 @@
 # fovea-worker
 
-Model worker for fovea-core: detection with tracking, and VLM clip jobs, over a
-loopback JSON API. Job and result contracts are in `fovea_worker/protocol.py`.
+Model worker for fovea-core: detection with tracking, frame and query embeddings
+for search, and VLM clip jobs, over a loopback JSON API. Job and result contracts
+are in `fovea_worker/protocol.py` and `fovea_worker/embedding.py`.
 
 Setup: `scripts/setup-worker.sh [torch|mlx|torch,mlx]` on macOS,
 `scripts\windows\setup-worker.ps1 [-Cpu]` on Windows (CUDA 12.8 torch wheels when
@@ -13,7 +14,8 @@ elsewhere `worker/.venv/bin/fovea-worker`.
 ```
 fovea-worker serve --backend dry --detector rfdetr --port 0 \
   --token-file <data>/worker.token --info-file <data>/worker.json \
-  [--warmup] [--exit-on-stdin-eof]
+  [--warmup] [--exit-on-stdin-eof] [--embedder transformers|dry|none] \
+  [--embed-preload siglip2-b16-224,qwen3vl-emb-2b-1024]
 ```
 
 - Binds `127.0.0.1:<port>` (0 picks a free port). Every request needs
@@ -39,6 +41,15 @@ fovea-worker serve --backend dry --detector rfdetr --port 0 \
   for model load (about 10 s on MPS) and kernel compilation. Jobs that arrive
   meanwhile wait in the detector lane within their deadline. Without it the
   detector loads on the first detect job.
+- `--embedder`: the embed lane backend. `transformers` (default) loads each
+  index version's model from the Hugging Face cache on its first embed job
+  (never downloads); `dry` returns deterministic unit vectors with status
+  `dry_run` and model revision `dry` (the core does not store them); `none`
+  answers embed jobs with 503 `backend_unavailable`.
+- `--embed-preload`: load these index versions and embed one text right after
+  binding, so the first query does not pay for model load. Model loads are
+  serialised process-wide (one lock), because importing torch and transformers
+  from two threads at once made both imports fail; inference is not.
 
 ## GET /v1/health
 
@@ -56,6 +67,12 @@ VLM lane keys are unprefixed, detector lane keys carry `detector_`:
 | `busy_ms` / `detector_busy_ms` | how long the lane has been running its current job, model load excluded; 0 when idle (the core restarts a worker whose detector stays busy over 30 s) |
 | `turnaround_ms` / `detector_turnaround_ms` | `{jobs, p50, p95}` over the last 200 jobs of the lane, from request accepted to result ready, lane wait included; the job that loaded the model is not counted |
 
+The embed lane reports the same keys prefixed `embed_` (`embedder` is its
+backend name), plus `embed_versions`: per enabled index version `{model_id,
+dims, state, load_ms, load_error, device}`, where state is that model's
+`unloaded`, `loading`, `ready` or `failed`. Because index version models load
+inside their first job, `embed_busy_ms` of that job includes the load.
+
 ## Tracking across jobs
 
 The detector keeps one ByteTrack instance per `camera_id:session_id` and the
@@ -72,6 +89,58 @@ Environment knobs: `FOVEA_DETECTOR_MODEL` (`nano`, `small`),
 `FOVEA_DETECTOR_TRACE` (`0` keeps the eager model), `FOVEA_TRACK_ACTIVATION`,
 `FOVEA_TRACK_LOST_BUFFER`, `FOVEA_TRACK_MATCH_THRESHOLD`,
 `FOVEA_TRACK_BOX_BUFFER` (box padding for association, default 0.3).
+
+## Embedding
+
+Index versions (`fovea_worker/embedding.py`):
+
+| Name | Model | Dims | Compute dtype | Frames | Queries |
+| --- | --- | --- | --- | --- | --- |
+| `siglip2-b16-224` | google/siglip2-base-patch16-224 | 768 | float32 | squashed to 224x224, pooled image tower | lowercased `this is a photo of {text}.`, padding max_length 64 |
+| `qwen3vl-emb-2b-1024` | Qwen/Qwen3-VL-Embedding-2B | 1024 (MRL) | float16 on MPS/CUDA, float32 on CPU | default instruction, at most 262144 px (256 visual tokens) | retrieval instruction, last-token pooling |
+
+Jobs:
+
+- `embed_frames {job_id, generation, index_version_name, frames[1..32],
+  sample_interval_ms (default 1000), priority (default "index"), limits.deadline_ms}`
+- `embed_text {job_id, generation, index_version_name, texts[1..8],
+  sample_interval_ms, priority (default "query"), limits.deadline_ms}`
+
+Result (HTTP 200): `{job_id, generation, status (ok|error|dry_run), model,
+model_version (<model_id>@<revision>), index_version, descriptor, dims, count,
+vectors, frame_ids, per_frame_ms, processing_ms, load_ms, device, error, notes,
+contract_violations}`. `vectors` is base64 of `count x dims` float32
+little-endian L2-normalised rows in input order; `frame_ids` repeats the job's
+frame ids in order (empty for texts); `per_frame_ms` has one entry per input
+(its batch's compute time split evenly, JPEG decode included); `load_ms` is
+non-zero when this job loaded the model.
+
+`descriptor` is `{name, model_id, model_revision (Hugging Face snapshot
+commit), preprocessing, dims, dtype, sample_interval_ms, prompt_template}` and
+`index_version` is the first 12 hex digits of the SHA-256 of its compact JSON
+with sorted keys. Descriptors hold only ASCII strings, integers and booleans,
+so Qt's `QJsonDocument::Compact` output of the same object hashes identically.
+A text query must name the same index version and sample interval as the
+frames it searches, or its hash differs.
+
+Scheduling: the embed lane is separate from the detector and VLM lanes. Waiting
+`query` jobs start before waiting `index` jobs, and a running job hands the lane
+to a waiting query between batches (16 frames for SigLIP 2, 2 for
+Qwen3-VL-Embedding), so a query waits for at most one batch of a running job
+(plus a model load that is already in progress). A model that cannot
+load answers 503 `backend_load_failed`; an unreadable frame or invalid output
+gives status `error` with no vectors.
+
+```
+fovea-worker embed-bench <frames-dir> --index siglip2-b16-224|qwen3vl-emb-2b-1024 [--batch 16] [--repeat 1]
+fovea-worker embed-query "<text>" ["<text>" ...] --against <frames-dir> --index <name> [--top 5]
+```
+
+`embed-bench` prints per-frame ms p50/p95 over full batches after a warmup
+batch, single-text query ms, import and load ms, peak RSS and device memory, and
+vector bytes per frame. `embed-query` embeds every image under the directory
+(recursively), prints the top frames per query and the best score per
+first-level subdirectory. Scores are cosine similarities for ranking only.
 
 ## Benchmarks
 

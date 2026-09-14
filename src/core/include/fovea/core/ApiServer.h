@@ -10,9 +10,12 @@ namespace fovea::core {
 class AnalysisScheduler;
 class CameraManager;
 class EventService;
+class ImportManager;
+class IndexScheduler;
 class PlaybackManager;
 class RetentionManager;
 class RuleEngine;
+class SearchService;
 class Store;
 class WorkerSupervisor;
 
@@ -23,11 +26,17 @@ struct AnalyticsServices {
   WorkerSupervisor& worker;
 };
 
+struct IndexServices {
+  IndexScheduler& index;
+  SearchService& search;
+  ImportManager& imports;
+};
+
 class ApiServer : public QObject {
   Q_OBJECT
 public:
   ApiServer(CameraManager& cameras, PlaybackManager& playback, RetentionManager& retention, Store& store,
-            AnalyticsServices analytics, QString token, QObject* parent = nullptr);
+            AnalyticsServices analytics, IndexServices indexing, QString token, QObject* parent = nullptr);
   bool listen(quint16 port = 0);
   quint16 port() const { return port_; }
   void setShutdownHandler(std::function<void()> handler) { shutdown_ = std::move(handler); }
@@ -36,6 +45,7 @@ public:
 private:
   void registerRoutes();
   void registerAnalyticsRoutes();
+  void registerSearchRoutes();
   bool authorized(const QHttpServerRequest& request) const;
 
   CameraManager& cameras_;
@@ -43,6 +53,7 @@ private:
   RetentionManager& retention_;
   Store& store_;
   AnalyticsServices analytics_;
+  IndexServices indexing_;
   QString token_;
   QHttpServer server_;
   QTcpServer* tcp_ = nullptr;

@@ -33,6 +33,8 @@ constexpr int kJpegMaxWidth = 960;
 constexpr int kEncoderThreads = 2;
 constexpr int64_t kEncodeTimeoutNs = 2'000'000'000;
 constexpr int64_t kSpoolMaxAgeMs = 30'000;
+// The index scheduler's spool (<spool>/index) holds a whole segment's samples and cleans up after itself.
+const QString kIndexSpool = QStringLiteral("index");
 constexpr int64_t kCoverageWindowMs = 60'000;
 constexpr int64_t kRateWindowNs = 10'000'000'000;
 constexpr size_t kStatSamples = 200;
@@ -197,6 +199,7 @@ AnalysisScheduler::AnalysisScheduler(CameraManager& cameras, WorkerSupervisor& w
   connect(&worker_, &WorkerSupervisor::stateChanged, this, [this](const QString& state) {
     if (state == QLatin1String("ready")) firstJobAfterReady_ = true;
   });
+  connect(&worker_.gate(), &InferenceGate::released, this, &AnalysisScheduler::postReady, Qt::QueuedConnection);
 }
 
 AnalysisScheduler::~AnalysisScheduler() {
@@ -279,6 +282,7 @@ void AnalysisScheduler::dropCamera(Camera& cam) {
     cam.pending->reply->abort();
     cam.pending->reply->deleteLater();
     --posted_;
+    worker_.gate().closed(InferenceGate::Lane::Detect, true);
   }
   if (!cam.pending->spoolPath.isEmpty()) QFile::remove(cam.pending->spoolPath);
   cam.pending.reset();
@@ -371,14 +375,20 @@ void AnalysisScheduler::onEncoded(const QString& cameraId, const QString& frameI
   postReady();
 }
 
+AnalysisScheduler::Camera* AnalysisScheduler::nextReady() {
+  Camera* next = nullptr;
+  for (auto& [id, cam] : cams_)
+    if (cam.readyToPost && cam.pending && (!next || cam.pending->takenMonoNs < next->pending->takenMonoNs)) next = &cam;
+  return next;
+}
+
 void AnalysisScheduler::postReady() {
-  while (posted_ < kMaxPosted) {
-    Camera* next = nullptr;
-    for (auto& [id, cam] : cams_)
-      if (cam.readyToPost && cam.pending && (!next || cam.pending->takenMonoNs < next->pending->takenMonoNs)) next = &cam;
-    if (!next) return;
+  while (posted_ < kMaxPosted && worker_.gate().mayPost(InferenceGate::Lane::Detect, monoNowNs())) {
+    Camera* next = nextReady();
+    if (!next) break;
     post(*next);
   }
+  worker_.gate().setDetectWaiting(nextReady() != nullptr);
 }
 
 QString AnalysisScheduler::unavailableReason() const {
@@ -424,6 +434,7 @@ void AnalysisScheduler::post(Camera& cam) {
   p.postedMonoNs = monoNowNs();
   p.reply = network_->post(req, QJsonDocument(job).toJson(QJsonDocument::Compact));
   ++posted_;
+  worker_.gate().opened(InferenceGate::Lane::Detect, p.postedMonoNs);
   QNetworkReply* reply = p.reply;
   connect(reply, &QNetworkReply::finished, this, [this, reply, cameraId = cam.id, jobId = p.jobId] { onReply(cameraId, jobId, reply); });
 }
@@ -431,6 +442,7 @@ void AnalysisScheduler::post(Camera& cam) {
 void AnalysisScheduler::onReply(const QString& cameraId, const QString& jobId, QNetworkReply* reply) {
   reply->deleteLater();
   --posted_;
+  worker_.gate().closed(InferenceGate::Lane::Detect, reply->error() == QNetworkReply::OperationCanceledError);
   const auto it = cams_.find(cameraId);
   if (it == cams_.end() || !it->second.pending || it->second.pending->jobId != jobId) {
     postReady();
@@ -553,11 +565,14 @@ void AnalysisScheduler::sweepSpool() {
                qPrintable(cam.id), achieved, taken, kMinUsefulFps);
     }
   }
-  QDirIterator it(spoolDir_, {QStringLiteral("*.jpg")}, QDir::Files, QDirIterator::Subdirectories);
-  while (it.hasNext()) {
-    const QFileInfo info(it.next());
-    if (inFlight.contains(info.absoluteFilePath())) continue;
-    if (nowUtc - info.lastModified().toMSecsSinceEpoch() > kSpoolMaxAgeMs) QFile::remove(info.absoluteFilePath());
+  for (const QString& cameraDir : QDir(spoolDir_).entryList(QDir::Dirs | QDir::NoDotAndDotDot)) {
+    if (cameraDir == kIndexSpool) continue;
+    QDirIterator it(spoolDir_ + QLatin1Char('/') + cameraDir, {QStringLiteral("*.jpg")}, QDir::Files);
+    while (it.hasNext()) {
+      const QFileInfo info(it.next());
+      if (inFlight.contains(info.absoluteFilePath())) continue;
+      if (nowUtc - info.lastModified().toMSecsSinceEpoch() > kSpoolMaxAgeMs) QFile::remove(info.absoluteFilePath());
+    }
   }
 }
 

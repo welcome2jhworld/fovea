@@ -738,6 +738,8 @@ void TestStore::migratesVersionTwoHolds() {
     QVERIFY(raw.open());
     QSqlQuery q(raw);
     for (const char* sql : {"DROP INDEX idx_evidence_holds_segment_reason", "DROP TABLE zones", "DROP TABLE events",
+                            "DROP TABLE index_versions", "DROP TABLE index_jobs", "DROP TABLE embedding_records",
+                            "DROP TABLE search_sessions", "DROP TABLE imports", "ALTER TABLE cameras DROP COLUMN index_enabled",
                             "UPDATE schema_version SET version=2",
                             "INSERT INTO evidence_holds(segment_id,until_utc_ms,reason) VALUES('s',0,'verify'),('s',0,'verify')"})
       QVERIFY2(q.exec(QString::fromLatin1(sql)), sql);
@@ -745,7 +747,7 @@ void TestStore::migratesVersionTwoHolds() {
   QSqlDatabase::removeDatabase(name);
   Store store;
   QVERIFY2(store.open(db), qPrintable(store.lastError()));
-  QCOMPARE(countRows(db, "SELECT version FROM schema_version"), 3);
+  QCOMPARE(countRows(db, "SELECT version FROM schema_version"), 4);
   QCOMPARE(countRows(db, "SELECT COUNT(*) FROM evidence_holds WHERE segment_id='s'"), 1);
   QVERIFY(store.hasEvidenceHold("s", 1));
   QCOMPARE(store.listZones().size(), 0);

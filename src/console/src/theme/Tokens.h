@@ -37,6 +37,7 @@ inline QColor tintWarning() { return rgba(226, 164, 60, .14); }
 inline QColor tintPositive() { return rgba(79, 178, 134, .14); }
 inline QColor tintNeutral() { return rgba(106, 113, 120, .16); }
 inline QColor tintCriticalRow() { return rgba(224, 96, 60, .06); }
+inline QColor accentBadge() { return rgba(90, 169, 214, .9); }
 inline QColor scrimChip() { return rgba(5, 6, 7, .72); }
 inline QColor scrimBadge() { return rgba(5, 6, 7, .8); }
 inline QColor scrimCaption() { return rgba(5, 6, 7, .82); }

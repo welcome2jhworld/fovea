@@ -1,12 +1,14 @@
 #!/bin/sh
 # Downloads the pinned model set into the Hugging Face cache (resumable).
-# Usage: scripts/fetch-models.sh [minimal|m0|all]
+# Usage: scripts/fetch-models.sh [search|minimal|m0|all]
+# search: the default index version's embedding model (what the Search tab needs)
 set -eu
 cd "$(dirname "$0")/.."
 SET="${1:-m0}"
 PY="${PYTHON:-worker/.venv/bin/python}"
 [ -x "$PY" ] || PY=/opt/anaconda3/bin/python3
 case "$SET" in
+  search) MODELS="google/siglip2-base-patch16-224" ;;
   minimal) MODELS="NemoStation/Marlin-2B-MLX-8bit" ;;
   m0) MODELS="NemoStation/Marlin-2B-MLX-8bit google/siglip2-base-patch16-224 Qwen/Qwen3.5-4B" ;;
   all) MODELS="NemoStation/Marlin-2B-MLX-8bit google/siglip2-base-patch16-224 Qwen/Qwen3.5-4B Qwen/Qwen3-VL-Embedding-2B" ;;

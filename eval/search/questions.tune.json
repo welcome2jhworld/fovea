@@ -1,0 +1,382 @@
+{
+  "schema_version": 1,
+  "split": "tune",
+  "videos": [
+    {
+      "name": "classroom",
+      "sha256": "a69bd5e39ff0e74286d13bcbfdadddd307b85decd2d9853db7518e0028785e31",
+      "duration_s": 32.8,
+      "width": 1920,
+      "height": 1080,
+      "fps": 30.0,
+      "source": "private, not redistributable",
+      "license": null,
+      "url": null
+    },
+    {
+      "name": "lot-walking",
+      "sha256": "452b11b7e0efbd019f1d9570d0c790e90416ad4ad29eec6003872d08443140ef",
+      "duration_s": 53.92,
+      "width": 768,
+      "height": 432,
+      "fps": 12.0,
+      "source": "private, not redistributable",
+      "license": null,
+      "url": null
+    },
+    {
+      "name": "lot-whitecar",
+      "sha256": "d31e0ebf194cc16e50eea784e7c3b0b1bb7976a4fb9b3fec26cb92a6704cca34",
+      "duration_s": 30.16,
+      "width": 768,
+      "height": 432,
+      "fps": 12.5,
+      "source": "private, not redistributable",
+      "license": null,
+      "url": null
+    },
+    {
+      "name": "people-walking",
+      "sha256": "822671fb20ed13ef9ead91d1f3678863b5aa078dd3b2ed45953fda39a61c979d",
+      "duration_s": 13.64,
+      "width": 1920,
+      "height": 1080,
+      "fps": 25.0,
+      "source": "supervision asset people-walking.mp4 = Pexels video 853889 'Black And White Video Of People' by Coverr",
+      "license": "Pexels License",
+      "url": "https://media.roboflow.com/supervision/video-examples/people-walking.mp4"
+    },
+    {
+      "name": "market-square",
+      "sha256": "21684157ced29570f2c33781c7bfe60ac04301a73c61e0778afd93c14bb70390",
+      "duration_s": 7.9,
+      "width": 2160,
+      "height": 3840,
+      "fps": 60.0,
+      "source": "supervision asset market-square.mp4 = Pexels video 3687560",
+      "license": "Pexels License",
+      "url": "https://media.roboflow.com/supervision/video-examples/market-square.mp4"
+    },
+    {
+      "name": "skiing",
+      "sha256": "81ffb0d3670805a82d4b8354ad6c87e9701a6f5d71757cc89fdc133f76559ab5",
+      "duration_s": 14.12,
+      "width": 1920,
+      "height": 1080,
+      "fps": 25.0,
+      "source": "supervision asset skiing.mp4 = Pexels video 4274798 by Adrien JACTA",
+      "license": "Pexels License",
+      "url": "https://media.roboflow.com/supervision/video-examples/skiing.mp4"
+    }
+  ],
+  "questions": [
+    {
+      "id": "t001",
+      "query": "a meeting room with blue chairs and white desks",
+      "language": "en",
+      "category": "scene",
+      "video_sha256": "a69bd5e39ff0e74286d13bcbfdadddd307b85decd2d9853db7518e0028785e31",
+      "ranges": [
+        {
+          "start_s": 0.0,
+          "end_s": 32.8
+        }
+      ],
+      "also_matches": [],
+      "negative": false,
+      "ambiguous": false,
+      "note": "",
+      "pair": null
+    },
+    {
+      "id": "t002",
+      "query": "snow-covered mountains on a sunny day",
+      "language": "en",
+      "category": "scene",
+      "video_sha256": "81ffb0d3670805a82d4b8354ad6c87e9701a6f5d71757cc89fdc133f76559ab5",
+      "ranges": [
+        {
+          "start_s": 0.0,
+          "end_s": 14.12
+        }
+      ],
+      "also_matches": [],
+      "negative": false,
+      "ambiguous": false,
+      "note": "",
+      "pair": null
+    },
+    {
+      "id": "t003",
+      "query": "노천 카페 파라솔이 있는 광장",
+      "language": "ko",
+      "category": "scene",
+      "video_sha256": "21684157ced29570f2c33781c7bfe60ac04301a73c61e0778afd93c14bb70390",
+      "ranges": [
+        {
+          "start_s": 0.0,
+          "end_s": 7.9
+        }
+      ],
+      "also_matches": [],
+      "negative": false,
+      "ambiguous": false,
+      "note": "",
+      "pair": null
+    },
+    {
+      "id": "t004",
+      "query": "a crowd of people crossing a wide plaza",
+      "language": "en",
+      "category": "count",
+      "video_sha256": "822671fb20ed13ef9ead91d1f3678863b5aa078dd3b2ed45953fda39a61c979d",
+      "ranges": [
+        {
+          "start_s": 0.0,
+          "end_s": 13.64
+        }
+      ],
+      "also_matches": [
+        {
+          "video_sha256": "21684157ced29570f2c33781c7bfe60ac04301a73c61e0778afd93c14bb70390",
+          "ranges": [
+            {
+              "start_s": 0.0,
+              "end_s": 7.9
+            }
+          ]
+        }
+      ],
+      "negative": false,
+      "ambiguous": false,
+      "note": "",
+      "pair": null
+    },
+    {
+      "id": "t005",
+      "query": "주차장에 있는 사람",
+      "language": "ko",
+      "category": "presence",
+      "video_sha256": "452b11b7e0efbd019f1d9570d0c790e90416ad4ad29eec6003872d08443140ef",
+      "ranges": [
+        {
+          "start_s": 1.0,
+          "end_s": 7.5
+        },
+        {
+          "start_s": 24.5,
+          "end_s": 29.5
+        },
+        {
+          "start_s": 40.0,
+          "end_s": 50.0
+        }
+      ],
+      "also_matches": [],
+      "negative": false,
+      "ambiguous": false,
+      "note": "Includes the two cyclists; no person is visible in lot-whitecar.",
+      "pair": null
+    },
+    {
+      "id": "t006",
+      "query": "a bicycle in a crowded square",
+      "language": "en",
+      "category": "presence",
+      "video_sha256": "21684157ced29570f2c33781c7bfe60ac04301a73c61e0778afd93c14bb70390",
+      "ranges": [
+        {
+          "start_s": 0.0,
+          "end_s": 7.9
+        }
+      ],
+      "also_matches": [],
+      "negative": false,
+      "ambiguous": false,
+      "note": "",
+      "pair": null
+    },
+    {
+      "id": "t007",
+      "query": "안경을 쓰고 남색 티셔츠를 입은 남자",
+      "language": "ko",
+      "category": "attribute",
+      "video_sha256": "a69bd5e39ff0e74286d13bcbfdadddd307b85decd2d9853db7518e0028785e31",
+      "ranges": [
+        {
+          "start_s": 0.0,
+          "end_s": 32.8
+        }
+      ],
+      "also_matches": [],
+      "negative": false,
+      "ambiguous": false,
+      "note": "",
+      "pair": null
+    },
+    {
+      "id": "t008",
+      "query": "a white sports car",
+      "language": "en",
+      "category": "attribute",
+      "video_sha256": "d31e0ebf194cc16e50eea784e7c3b0b1bb7976a4fb9b3fec26cb92a6704cca34",
+      "ranges": [
+        {
+          "start_s": 25.0,
+          "end_s": 28.0
+        }
+      ],
+      "also_matches": [],
+      "negative": false,
+      "ambiguous": false,
+      "note": "",
+      "pair": null
+    },
+    {
+      "id": "t009",
+      "query": "민트색 자동차",
+      "language": "ko",
+      "category": "attribute",
+      "video_sha256": "452b11b7e0efbd019f1d9570d0c790e90416ad4ad29eec6003872d08443140ef",
+      "ranges": [
+        {
+          "start_s": 43.5,
+          "end_s": 49.5
+        }
+      ],
+      "also_matches": [],
+      "negative": false,
+      "ambiguous": true,
+      "note": "Pale blue-green car; the colour can also be read as silver or light grey.",
+      "pair": null
+    },
+    {
+      "id": "t010",
+      "query": "주차장을 가로질러 걸어가는 사람",
+      "language": "ko",
+      "category": "action",
+      "video_sha256": "452b11b7e0efbd019f1d9570d0c790e90416ad4ad29eec6003872d08443140ef",
+      "ranges": [
+        {
+          "start_s": 1.0,
+          "end_s": 7.5
+        },
+        {
+          "start_s": 40.0,
+          "end_s": 46.5
+        }
+      ],
+      "also_matches": [],
+      "negative": false,
+      "ambiguous": false,
+      "note": "",
+      "pair": null
+    },
+    {
+      "id": "t011",
+      "query": "a cyclist and a car in the same parking lot",
+      "language": "en",
+      "category": "count",
+      "video_sha256": "452b11b7e0efbd019f1d9570d0c790e90416ad4ad29eec6003872d08443140ef",
+      "ranges": [
+        {
+          "start_s": 44.5,
+          "end_s": 49.5
+        }
+      ],
+      "also_matches": [],
+      "negative": false,
+      "ambiguous": false,
+      "note": "",
+      "pair": null
+    },
+    {
+      "id": "t012",
+      "query": "뒷줄에 앉아 있던 사람이 자리에서 일어나는 장면",
+      "language": "ko",
+      "category": "action",
+      "video_sha256": "a69bd5e39ff0e74286d13bcbfdadddd307b85decd2d9853db7518e0028785e31",
+      "ranges": [
+        {
+          "start_s": 20.5,
+          "end_s": 22.0
+        }
+      ],
+      "also_matches": [],
+      "negative": false,
+      "ambiguous": false,
+      "note": "Ordering-sensitive pair with t013: single frames look alike, so embedding-only search is not expected to separate the two.",
+      "pair": "classroom-back-stand-sit"
+    },
+    {
+      "id": "t013",
+      "query": "a person in the back row sits back down",
+      "language": "en",
+      "category": "action",
+      "video_sha256": "a69bd5e39ff0e74286d13bcbfdadddd307b85decd2d9853db7518e0028785e31",
+      "ranges": [
+        {
+          "start_s": 26.0,
+          "end_s": 27.5
+        }
+      ],
+      "also_matches": [],
+      "negative": false,
+      "ambiguous": false,
+      "note": "Ordering-sensitive pair with t012: single frames look alike, so embedding-only search is not expected to separate the two.",
+      "pair": "classroom-back-stand-sit"
+    },
+    {
+      "id": "t014",
+      "query": "트럭",
+      "language": "ko",
+      "category": "negative",
+      "video_sha256": null,
+      "ranges": [],
+      "also_matches": [],
+      "negative": true,
+      "ambiguous": false,
+      "note": "",
+      "pair": null
+    },
+    {
+      "id": "t015",
+      "query": "a person riding a motorcycle",
+      "language": "en",
+      "category": "negative",
+      "video_sha256": null,
+      "ranges": [],
+      "also_matches": [],
+      "negative": true,
+      "ambiguous": false,
+      "note": "Hard negative: lot-walking has two cyclists.",
+      "pair": null
+    },
+    {
+      "id": "t016",
+      "query": "an empty classroom with nobody in it",
+      "language": "en",
+      "category": "negative",
+      "video_sha256": null,
+      "ranges": [],
+      "also_matches": [],
+      "negative": true,
+      "ambiguous": false,
+      "note": "Hard negative: the classroom always has four people in it.",
+      "pair": null
+    },
+    {
+      "id": "t017",
+      "query": "비 오는 날 우산을 쓰고 걷는 사람",
+      "language": "ko",
+      "category": "negative",
+      "video_sha256": null,
+      "ranges": [],
+      "also_matches": [],
+      "negative": true,
+      "ambiguous": false,
+      "note": "Hard negative: market-square has cafe parasols but no rain and no handheld umbrellas.",
+      "pair": null
+    }
+  ]
+}

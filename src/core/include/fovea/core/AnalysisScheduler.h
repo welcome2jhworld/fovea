@@ -55,7 +55,9 @@ QString parseDetectReply(const QJsonObject& body, const QString& jobId, uint64_t
 // camera whose request is still open counts a skip. Every taken frame produces
 // exactly one AnalysisResult: known with detections, or unknown when the worker
 // is down, the detector is loading, the request failed or timed out, or the
-// reply broke the contract. A per-camera generation increases when analysis of
+// reply broke the contract. While the worker's lanes share a GPU, a ready
+// frame also waits for its InferenceGate (see WorkerSupervisor.h). A
+// per-camera generation increases when analysis of
 // the camera starts, on session change and on bumpGeneration (rule-set change).
 // Jobs carry the camera's DetectHints (detector threshold and the longest gap
 // its rules tolerate, over which the worker keeps track ids). Latency samples
@@ -133,6 +135,8 @@ private:
   void observeSession(Camera& cam, const QString& sessionId);
   void dispatch(Camera& cam, int64_t nowMonoNs);
   void onEncoded(const QString& cameraId, const QString& frameId, const QString& error);
+  Camera* nextReady();
+  // Posts ready frames while a request slot is free and the worker's inference gate allows detection.
   void postReady();
   QString unavailableReason() const;
   void post(Camera& cam);

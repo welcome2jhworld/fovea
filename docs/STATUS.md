@@ -1,6 +1,6 @@
 # Development status
 
-Updated 2026-09-13. Categories: done / in progress / blocked. Each "verified"
+Updated 2026-09-14. Categories: done / in progress / blocked. Each "verified"
 line names what actually ran.
 
 ## M0 — foundation and risk checks
@@ -39,6 +39,34 @@ Done
 Blocked
 - Windows: CI build and packaged M1 run on GitHub windows-2022 runners is being
   brought up; the target NVIDIA machine has not run Fovea yet.
+
+## Integrated build (2026-09-14, M4 tree)
+
+Core, worker and console with the M4 search code built and run together from
+one tree on the development Mac (Apple M4, 16 GB, macOS 26.3, Qt 6.9.0,
+GStreamer 1.26.1), while four review agents read the tree and, for part of the
+time, other processes ran (1-minute load average 3.4 to 5.8).
+
+- Verified: clean build of every target (`FOVEA_BUILD_TOOLS=ON`), 228 build
+  steps, 0 compiler warnings.
+- Verified: `ctest` 22 of 22 pass (0 skipped), including the new `test_vector_store`,
+  `test_index` and `test_import_sample`, and the console's `test_search_logic`.
+- Verified: worker unit tests, 145 tests: system Python 3.12 OK with 6 skipped
+  (clock tests for other platforms, tests that need torch or supervision, the
+  weights-dependent embedding test); worker venv with real weights and the
+  parking-lot frames OK with 2 skipped (the other-platform clock tests).
+- Verified on this tree: `scripts/verify_m1.py --source pattern` PASS
+  (`docs/verification/m1-20260914-000407.{json,log}`), `scripts/verify_m2.py
+  --minutes 3` PASS (`m2-20260914-000913`), `scripts/verify_m3.py` PASS
+  (`m3-20260914-000606`), `scripts/verify_m4.py` PASS (`m4-20260914-000451`).
+  M2 and M3 numbers are in their sections below.
+- Verified again after the review fixes (2026-09-14, same build with the fixed
+  core, worker and console): 22 of 22 ctest tests, 146 worker tests in the venv
+  with real weights (2 skipped, both for other platforms), `verify_m1.py`
+  (`m1-20260914-005020`), `verify_m4.py` (`m4-20260914-005102`) and
+  `verify_m3.py` (`m3-20260914-005210`) all PASS. M3 turnaround was p50 103.3 /
+  p95 126.3 ms on this run (the machine was quiet), against p50 120.2 / p95
+  445.2 ms while four review agents were reading the tree.
 
 ## Integrated build (2026-09-13)
 
@@ -107,6 +135,19 @@ Done
     (purged 1); audit rows match; `retention_days` 3 accepted, invalid value
     rejected with 400; `max_bytes` deleted all 5 finalized segments of that
     camera.
+- Verified again on the M4 tree (2026-09-14, `--minutes 3`, report
+  `docs/verification/m2-20260914-000913.{json,log}`): PASS, 0 failed checks.
+  All 4 cameras online in 1.29 s; fps 25 on every camera and sample, latency
+  p95 at most 2.2 ms, 0 drops; kill -9 recovery to all online in 1.09 s
+  (4 sessions closed, 4 segments finalized, 4 rings removed); console closed
+  after 6.3 s with the core still recording; disk floor paused recording on all
+  4 cameras at 25 fps; retention deleted by age with the held segment kept and
+  the crash-left file purged. New in this run: the worker indexed every
+  finalized 30 s segment during the soak (the cameras have indexing enabled by
+  default), and the core's RSS went 87.7 MB -> 124.0 MB after the first minute
+  -> 144.7 MB at 3 minutes (+16.7 % after the first minute, CPU average
+  24.4 %), against +1.5 % on the M3 tree without indexing. A 10-minute soak on
+  the same build is listed under M4.
 - Verified before the review fixes (`--minutes 5`, report
   `docs/verification/m2-20260913-123234.{json,log}`): PASS.
 - Verified earlier by the core lane with a 10 min soak
@@ -184,6 +225,16 @@ Done
     ms; both now include failed and timed-out requests); worker detector p50 58
     / p95 76 ms over 79 jobs. Parking lot camera 2 fps, unknown ratio 0.167,
     turnaround p50 67.8 / p95 93.7 ms.
+- Verified again on the M4 tree (2026-09-14, report
+  `docs/verification/m3-20260914-000606.{json,log}`): PASS, all checks, same
+  scenarios. Event opened 10 440 ms after the first known detection; worker
+  SIGKILL: ready 14.7 s after the kill, dwell restarted 14.7 s after the kill,
+  event 23.4 s after the restarted pending, the open seated event stayed
+  `active`; rearm event 20 520 ms after the clear; steady window 71.1 s at
+  2.01 detect fps with unknown ratio 0.0; core turnaround p50 120.2 / p95
+  445.2 ms and worker detector p50 111 / p95 373 ms over 75 jobs, slower than
+  the 2026-09-13 run because four review agents were reading the tree during
+  the run; core SIGKILL and analytics toggle as before.
 - Verified earlier, before the review fixes
   (`docs/verification/m3-20260913-123858.{json,log}`, scenario details in
   `docs/verification/m3-20260913-122156.md`): PASS with the same scenarios.
@@ -233,6 +284,164 @@ Not verified
 Known issues
 - Labels of neighbouring detection boxes overlap on the tile (cosmetic).
 
+## M4 — natural-language search over recordings
+
+Done
+- Worker: an `embed` lane separate from the detector and VLM lanes, two index
+  versions (`siglip2-b16-224`, 768 dims float32; `qwen3vl-emb-2b-1024`, 1024
+  dims MRL, float16 on MPS/CUDA), `embed_frames` and `embed_text` jobs with
+  contract checks, a descriptor per index version whose hash the core
+  recomputes, query jobs that take the lane between an index job's batches,
+  `embed-bench` and `embed-query` CLIs. Bench and sanity check on real frames:
+  `docs/verification/embed-bench-20260913-231945.md` (SigLIP 2 25 ms per frame at
+  batch 16 on MPS, Qwen 0.8 to 0.9 s per frame at the 262 144 px cap; a Qwen
+  text query answered in 433 ms while a 32-frame Qwen index request held the
+  lane).
+- Core: schema v4 (`index_versions`, `index_jobs`, `embedding_records`,
+  `search_sessions`, `imports`, camera `index_enabled`), `POST /v1/imports`
+  (remux without re-encoding into `imported` segments of a camera, own session
+  clock), segment sampling at every whole second of UTC, a persistent index
+  queue with restart recovery, append-only vector files with a startup check
+  and compaction, brute-force cosine search over the filtered range, range
+  merging, coverage reporting, stored search sessions, thumbnails per record,
+  retention and camera deletion propagating to records, jobs, thumbnails and
+  stored sessions, `GET /v1/index`, `PUT /v1/index/active`,
+  `DELETE /v1/index/versions/{hash}`. Deviations from the design are listed in
+  `docs/M4_DESIGN.md`, "As implemented in the core".
+- Console: Search tab (query bar, time and camera filters, index status line,
+  results grid with async thumbnails and a relevance badge, stats line with
+  coverage, inspector with the evidence player limited to the result, metadata,
+  the permanent "Similarity search. Results are not verified." note, the four
+  not-implemented actions disabled), searching / empty / error states, Ctrl+K,
+  stub-core fixtures and screenshot views for the console tests.
+- Evaluation set `eval/search/` (53 questions, 36 final and 17 tune, 28 Korean,
+  12 negatives, 6 videos matched by sha256: 3 private local clips and 3
+  supervision assets) and `scripts/eval_search.py`.
+- Verified after the review fixes (`scripts/verify_m4.py` with the three local
+  clips, report `docs/verification/m4-20260914-005102.{json,log}`): PASS, all
+  checks, index version `b63a3a358815` (the descriptor now records the image
+  processor, so the hash differs from the run before the fixes). Imports 15 to
+  31 ms; the core killed after 32 of 54 records of a running job deleted that
+  attempt's rows and reached coverage 1.0 again 16.4 s after the restart, 117
+  live records for 117 expected instants, 0 instants with two records; index
+  cost 179 compute s per footage hour (20x real time); each positive query
+  ranked its own camera first (relevance 0.150 / 0.212 / 0.161) with total 17
+  to 36 ms of which 0 to 2 ms scanning; playback at a result's time delivered
+  24 frames in 2 s; retention removed the classroom camera's records (0 live,
+  84 kept), its thumbnails (404) and its ranges from the stored session.
+- Verified before the review fixes (`docs/verification/m4-20260914-000451.{json,log}`):
+  PASS, all checks.
+  - Imports: 3 files became 4 + 1 + 4 finalized `imported` segments anchored at
+    the given `start_utc_ms` (import 18 to 36 ms each); a missing file answers
+    400, overlapping footage 409.
+  - The details below are from that first run; the run after the fixes checked
+    the same scenarios with the numbers above.
+  - Restart mid-index: the core was killed after the walking video's job had
+    stored 32 of 54 records; after the restart the 32 records of the interrupted
+    attempt were deleted, the job ran again (generation 1 -> 2), every camera
+    reached coverage 1.0 in 17.4 s, 118 live records for 118 expected samples,
+    0 instants with two records.
+  - Index cost on this run: 246 compute s per hour of footage (14.6x real time
+    for one camera at 1 sample/s), 118 rows, 364 KB of vectors, 919 KB of
+    thumbnails.
+  - Queries: each positive query ranked its own video's camera first
+    (classroom, walking, white car), answered by `siglip2-b16-224` as similarity
+    only, coverage 1.0, total 22 to 37 ms; camera and time filters hold; an
+    unknown camera answers 400; the stored session returns the same ranges; the
+    representative thumbnail is a JPEG.
+  - Playback at a result's time delivered 24 frames in 2 s.
+  - Retention (`FOVEA_RETENTION_SECONDS`) removed the classroom camera's
+    footage: 0 live records left for it, 85 kept for the others, its 33
+    thumbnails gone (404), the stored session lost its classroom ranges, a new
+    query returns no classroom footage, the walking query still ranks its video
+    first, 4 audit rows.
+- Verified: evaluation of both index versions on the final set
+  (`docs/verification/search-eval-siglip2-b16-224-final-cf0.3-20260914-005638.{json,md}`,
+  `search-eval-qwen3vl-emb-2b-1024-final-cf0.3-20260914-005653.{json,md}`,
+  comparison in `search-eval-summary-final-20260914-005952.md`). Headline set of
+  24 questions: siglip2-b16-224 Recall@1 0.917, Recall@5 1.000, Recall@10 1.000,
+  query total p50 15 ms, 226 compute s per footage hour; qwen3vl-emb-2b-1024
+  Recall@1 0.875, Recall@5 0.917, Recall@10 0.958, p50 86 ms, 3 176 compute s
+  per footage hour. Korean questions (13 of the 24) are where they differ most:
+  SigLIP 2 answers 0.923 / 1.000 / 1.000 and Qwen 0.769 / 0.846 / 0.923, while
+  Qwen is perfect on the 11 English ones. Negative queries: none of Qwen's 8
+  score above the median positive top score, against one of SigLIP 2's. By the
+  rule fixed before the runs (higher Recall@5, tie to the cheaper)
+  `siglip2-b16-224` is the default; Qwen indexes at 0.88x real time on this Mac
+  and misses the throughput target of the design. `candidate_fraction` 0.3 was
+  chosen on the tune set, whose five runs are in `docs/verification/` too.
+- Verified: console against the real core (a scratch script, not in the repo:
+  `fovea-core` with the venv worker, three cameras with the local clips
+  imported through `POST /v1/imports`, index coverage 1.0 on all three, then
+  the console headless with `FOVEA_SCREENSHOT_VIEW=search-results`). The
+  screenshot shows the real query "person walking across the gate apron" with
+  7 results over two cameras (relevance 0.12 down to 0.07), real thumbnails
+  (the walker is visible in the first one), the index line `siglip2-b16-224 ·
+  Parking Lot 100% · Lot Entrance 100% · Classroom 100% · queue empty`, the
+  stats line `7 results · < 0.1 hours searched · coverage 100% · 0.03 s`, and
+  the inspector playing the selected 14 s range with its metadata (index
+  version `b63a3a358815`, model google/siglip2-base-patch16-224) and the
+  permanent "Similarity search. Results are not verified." note above the four
+  disabled actions. The console exited 0 and the core shut down cleanly.
+- Windows packaging: `Setup-Worker.cmd` now also downloads the SigLIP 2
+  weights (about 1.5 GB) into the Hugging Face cache, because the worker never
+  downloads at run time and the Search tab needs them; `scripts/fetch-models.sh
+  search` does the same on macOS.
+- Review fixes (2026-09-14), each with a unit test unless noted. Core: a job
+  left running on a segment that was deleted is skipped at the next start
+  instead of sitting in the queue for ever, and a crash now counts an attempt
+  so a segment that takes the core down cannot hold the head of the queue; a
+  scan streams its rows instead of loading every row of the range (memory is
+  the candidate heap, not the footage), at most two scans run at once with four
+  waiting and `503 search_busy` beyond that; the coverage counts that choose
+  between the active and the previous version run on a pool thread, and a query
+  with no previous version counts nothing; a filter that leaves no footage
+  answers at once without asking the worker; a segment that ends exactly where
+  a range starts no longer marks it partial; records whose vector is not at
+  their offset are dropped and their segment is indexed again (at startup and
+  when a scan finds them); the files of a version deleted before its removal
+  ran are removed at the next start, and a version cannot be deleted while a
+  search is scanning; an import that fails removes its fragment files that have
+  no segment row. Worker: model loads are serialised process-wide, so
+  `--warmup` with `--embed-preload` no longer makes two threads import torch at
+  once; both descriptors record the image-processor class, so a change of
+  resize implementation becomes a new index version. Console: a search and its
+  thumbnail fetches are aborted when the screen is hidden or destroyed (the
+  exit drain no longer waits for them, and the stale fetches no longer queue in
+  front of the next query); the stub core answers with the documented error
+  codes, limits and fields. Evaluation: percentiles are interpolated (the
+  "median" was a single order statistic picked by banker's rounding, which
+  moved the negatives figure), report file names carry the split and the
+  candidate fraction, and the reports state what precision divides by and how
+  many ranges a query returned.
+
+Not verified
+- Windows: MSVC build and run of the M4 core and console, the worker embed lane
+  on CUDA, `Setup-Worker.cmd` with the model download, Qwen3-VL-Embedding on a
+  GPU, a query arriving while a Qwen index request holds the lane on a GPU.
+- The scan bound (`search_busy`) and the streaming scan under real load: unit
+  tests and the verification run cover the paths, but no run has had more than
+  a few thousand samples or more than one query at a time.
+- Vector bytes that a power loss leaves stale inside a file are found only when
+  a search reads them (the row is then dropped and its segment indexed again);
+  the startup check reads offsets, not record ids.
+- Scale: the index over hours or days of footage (brute-force scan latency,
+  compaction on real data, thumbnail volume of about 44 MB per footage hour),
+  and memory over a long soak with indexing (see the M2 3-minute soak: RSS
+  +16.7 % after the first minute while 24 segments were indexed; the 10-minute
+  soak result is added below when it finishes).
+- Field recall: the corpus is 152 s of footage with 24 headline questions, and
+  the tune and final splits share the same footage; the numbers separate the
+  two models on this footage only.
+- Console against the real core beyond the screenshot: custom time range and
+  camera multi-select, keyboard navigation, a search that fails or is cancelled
+  by a newer query, thumbnails for many results, a partially deleted range.
+- Imports of H.265 and MKV files and of files longer than a few minutes; a
+  second index version active at the same time as a re-index.
+- Korean queries were evaluated only on SigLIP 2's and Qwen's multilingual
+  text towers with the question set above; no native speaker rated the ranking.
+
 ## Next
-- M4: persistent index, embeddings, filter + vector candidate search.
-- Windows: M2 and M3 verification scripts on the target NVIDIA machine.
+- M5: VLM re-check of search results, semantic rules, drafting and follow-up
+  questions (`docs/M5_DESIGN.md`).
+- Windows: M2, M3 and M4 verification scripts on the target NVIDIA machine.

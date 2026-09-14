@@ -1,4 +1,5 @@
 """`serve` as a child process, started the way fovea-core starts it. Dry backends only."""
+import importlib.util
 import json
 import subprocess
 import tempfile
@@ -31,7 +32,7 @@ class ServeProcessTest(unittest.TestCase):
         self._tmp.cleanup()
 
     def _spawn(self, *extra: str) -> dict:
-        self.proc = spawn_serve(self.dir, TOKEN, ["--backend", "dry", "--detector", "dry", *extra],
+        self.proc = spawn_serve(self.dir, TOKEN, ["--backend", "dry", "--detector", "dry", "--embedder", "dry", *extra],
                                 stdout=subprocess.PIPE)
         info = wait_for_info(self.info_path, self.proc, 20.0)
         self.assertIsNotNone(info, f"no info file, exit code {self.proc.poll()}")
@@ -92,6 +93,25 @@ class ServeProcessTest(unittest.TestCase):
             time.sleep(0.02)
         self.assertEqual(health["detector_state"], "ready")
         self.assertEqual(health["state"], "unloaded")
+
+    @unittest.skipUnless(importlib.util.find_spec("numpy"), "numpy not importable")
+    def test_dry_embedder_preloads_and_answers_a_query(self):
+        info = self._spawn("--embed-preload", "qwen3vl-emb-2b-1024")
+        client = WorkerClient(info["port"], TOKEN)
+        deadline = time.monotonic() + 10
+        health: dict = {}
+        while time.monotonic() < deadline and health.get("embed_state") != "ready":
+            _, health = client.call("GET", "/v1/health", timeout_s=5)
+            time.sleep(0.02)
+        self.assertEqual(health["embed_versions"]["qwen3vl-emb-2b-1024"]["state"], "ready")
+        self.assertEqual(health["embed_versions"]["siglip2-b16-224"]["state"], "unloaded")
+        code, body = client.call("POST", "/v1/jobs", {"job_id": "q", "kind": "embed_text", "texts": ["빨간 트럭"],
+                                                      "index_version_name": "qwen3vl-emb-2b-1024"}, timeout_s=5)
+        self.assertEqual((code, body["status"], body["dims"], body["contract_violations"]), (200, "dry_run", 1024, []))
+
+    def test_unknown_preload_is_a_usage_error(self):
+        self.proc = spawn_serve(self.dir, TOKEN, ["--backend", "dry", "--detector", "dry", "--embed-preload", "clip"])
+        self.assertEqual(self._wait_exit(), 2)
 
 
 class InfoFileTest(unittest.TestCase):

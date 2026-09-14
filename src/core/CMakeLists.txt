@@ -17,6 +17,13 @@ set(FOVEA_CORE_LIB_SOURCES
   include/fovea/core/RuleEngine.h
   include/fovea/core/EventService.h
   include/fovea/core/EvidenceService.h
+  include/fovea/core/Index.h
+  include/fovea/core/VectorStore.h
+  include/fovea/core/SegmentSampler.h
+  include/fovea/core/EmbedClient.h
+  include/fovea/core/IndexScheduler.h
+  include/fovea/core/SearchService.h
+  include/fovea/core/ImportManager.h
   src/ApiHttp.h
   src/StoreSql.h
   src/Store.cpp
@@ -29,6 +36,15 @@ set(FOVEA_CORE_LIB_SOURCES
   src/EventService.cpp
   src/EvidenceService.cpp
   src/ApiAnalyticsRoutes.cpp
+  src/ApiSearchRoutes.cpp
+  src/StoreIndex.cpp
+  src/Index.cpp
+  src/VectorStore.cpp
+  src/SegmentSampler.cpp
+  src/EmbedClient.cpp
+  src/IndexScheduler.cpp
+  src/SearchService.cpp
+  src/ImportManager.cpp
   src/SecretStore.cpp
   src/ApiServer.cpp
   src/MediaProbe.cpp

@@ -19,7 +19,9 @@ are never returned by the API or written to logs.
 ### StreamSession
 `id, camera_id, started_mono_ns, started_utc_ms, first_pts_ns, ended_utc_ms,
 end_reason (eos|error|pts_backwards|stopped|shutdown), codec, width, height, fps,
-transport, capture_clock (none|rtcp)`.
+transport, capture_clock (none|rtcp|imported)`. An imported session (M4) has
+`first_pts_ns` 0 and `started_utc_ms` the time given for media time zero of
+the file.
 
 ### RecordingSegment
 `id, camera_id, session_id, path, state (recording|finalized|damaged|deleted),
@@ -27,7 +29,8 @@ start_pts_ns, end_pts_ns, start_utc_ms, end_utc_ms, bytes, keyframe_start,
 created_utc_ms, finalized_utc_ms, deleted_utc_ms, delete_reason, purged_utc_ms`.
 
 `delete_reason` is empty for segments of a deleted camera (their files stay on
-disk) and `age | max_bytes | disk_floor` for retention. Retention commits the
+disk), `age | max_bytes | disk_floor` for retention and `import_failed` for the
+segments of an import that failed or was interrupted (M4). Retention commits the
 state change first and removes the file afterwards; `purged_utc_ms` is set once
 the file is gone (or was outside the recordings directory and left alone). A
 row with a reason and `purged_utc_ms = 0` is a removal still owed, finished by
@@ -51,9 +54,34 @@ columns and `evidence_holds`; schema version 3 adds the M3 tables below. Zone/Zo
 AlertDelivery, EvidenceRef, AnalysisCoverage. Columns and lifecycles are in
 `docs/M3_DESIGN.md`.
 
+## M4 (schema version 4)
+
+Columns and lifecycles are in `docs/M4_DESIGN.md`; API shapes in `docs/API.md`.
+
+- Camera gains `index_enabled` (default 1).
+- `index_versions`: `hash (PK), name, model_id, model_revision, dims, dtype,
+  sample_interval_ms, descriptor_json, created_utc_ms, deleted_utc_ms`.
+- `index_jobs`: `id (integer), segment_id, camera_id, index_version,
+  state (queued|running|done|failed|skipped), reason, attempts, generation,
+  sample_interval_ms, frames_expected, frames_indexed, next_attempt_utc_ms,
+  compute_ms, footage_ms, created_utc_ms, updated_utc_ms`, unique
+  `(segment_id, index_version)`.
+- `embedding_records`: `id (integer), index_version, camera_id, session_id,
+  segment_id, job_id, generation, pts_ns, utc_ms, vector_file, vector_offset,
+  thumbnail_path, deleted`. The vector lives in
+  `<data>/index/<index_version>/<camera_id>/<yyyymmdd>[-<n>].vec` at
+  `vector_offset`; a deleted row loses its thumbnail path.
+- `search_sessions`: `id, query, filters_json, index_version, model,
+  created_utc_ms, stats_json, results_json`.
+- `imports`: `id, camera_id, session_id, source_path, start_utc_ms,
+  state (queued|running|done|failed), error, codec, duration_ns, progress,
+  segments, bytes, created_utc_ms, started_utc_ms, finished_utc_ms`.
+- Settings: `search.active_index_version`, `search.previous_index_version`
+  (JSON strings), `index.sample_interval_ms` (number, 200..60000, default 1000).
+
 ## Later milestones (names reserved)
 
-ObservationWindow, IndexJob, EmbeddingRecord, Observation, SearchSession.
+ObservationWindow, Observation.
 
 ## Rule and event states (M3, fixed now)
 

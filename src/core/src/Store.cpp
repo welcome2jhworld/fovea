@@ -15,7 +15,7 @@
 namespace fovea::core {
 namespace {
 
-constexpr int kSchemaVersion = 3;
+constexpr int kSchemaVersion = 4;
 const QString kQuarantineDir = QStringLiteral("quarantine");
 // When a segment's content ended: the end time once finalized, else its start
 // (a damaged cut), else when its row was written.
@@ -51,6 +51,7 @@ Camera readCamera(const QSqlQuery& q) {
   c.jitterMs = q.value("jitter_ms").toInt();
   c.segmentSeconds = q.value("segment_seconds").toInt();
   c.analyticsEnabled = q.value("analytics_enabled").toBool();
+  c.indexEnabled = q.value("index_enabled").toBool();
   c.recordEnabled = q.value("record_enabled").toBool();
   c.enabled = q.value("enabled").toBool();
   c.retentionDays = q.value("retention_days").toInt();
@@ -115,6 +116,7 @@ Store::~Store() { close(); }
 bool Store::open(const QString& path) {
   db_ = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), connectionName_);
   db_.setDatabaseName(path);
+  path_ = path;
   if (!db_.open()) {
     lastError_ = db_.lastError().text();
     return false;
@@ -259,6 +261,7 @@ bool Store::migrate() {
     };
   }
   if (current < 3) statements += sql::analyticsSchemaStatements();
+  if (current < 4) statements += sql::indexSchemaStatements();
   statements += {QStringLiteral("DELETE FROM schema_version"),
                  QStringLiteral("INSERT INTO schema_version(version) VALUES(%1)").arg(kSchemaVersion)};
   db_.transaction();
@@ -385,8 +388,9 @@ bool Store::insertCamera(const Camera& c) {
   QSqlQuery q(db_);
   q.prepare(QStringLiteral(
       "INSERT INTO cameras(id,code,name,group_name,kind,main_url,sub_url,transport,timeout_ms,jitter_ms,segment_seconds,"
-      "analytics_enabled,record_enabled,enabled,retention_days,max_bytes,created_utc_ms,updated_utc_ms) VALUES(:id,:code,:name,"
-      ":group_name,:kind,:main_url,:sub_url,:transport,:timeout_ms,:jitter_ms,:segment_seconds,:analytics_enabled,:record_enabled,"
+      "analytics_enabled,index_enabled,record_enabled,enabled,retention_days,max_bytes,created_utc_ms,updated_utc_ms) VALUES(:id,:code,"
+      ":name,:group_name,:kind,:main_url,:sub_url,:transport,:timeout_ms,:jitter_ms,:segment_seconds,:analytics_enabled,:index_enabled,"
+      ":record_enabled,"
       ":enabled,:retention_days,:max_bytes,:created,:updated)"));
   q.bindValue(":id", text(c.id));
   q.bindValue(":code", text(c.code));
@@ -400,6 +404,7 @@ bool Store::insertCamera(const Camera& c) {
   q.bindValue(":jitter_ms", c.jitterMs);
   q.bindValue(":segment_seconds", c.segmentSeconds);
   q.bindValue(":analytics_enabled", c.analyticsEnabled ? 1 : 0);
+  q.bindValue(":index_enabled", c.indexEnabled ? 1 : 0);
   q.bindValue(":record_enabled", c.recordEnabled ? 1 : 0);
   q.bindValue(":enabled", c.enabled ? 1 : 0);
   q.bindValue(":retention_days", c.retentionDays);
@@ -415,7 +420,7 @@ bool Store::updateCamera(const Camera& c) {
   q.prepare(QStringLiteral(
       "UPDATE cameras SET code=:code,name=:name,group_name=:group_name,kind=:kind,main_url=:main_url,sub_url=:sub_url,transport=:transport,"
       "timeout_ms=:timeout_ms,jitter_ms=:jitter_ms,segment_seconds=:segment_seconds,analytics_enabled=:analytics_enabled,"
-      "record_enabled=:record_enabled,enabled=:enabled,retention_days=:retention_days,max_bytes=:max_bytes,updated_utc_ms=:updated"
+      "index_enabled=:index_enabled,record_enabled=:record_enabled,enabled=:enabled,retention_days=:retention_days,max_bytes=:max_bytes,updated_utc_ms=:updated"
       " WHERE id=:id AND deleted_utc_ms=0"));
   q.bindValue(":id", text(c.id));
   q.bindValue(":code", text(c.code));
@@ -429,6 +434,7 @@ bool Store::updateCamera(const Camera& c) {
   q.bindValue(":jitter_ms", c.jitterMs);
   q.bindValue(":segment_seconds", c.segmentSeconds);
   q.bindValue(":analytics_enabled", c.analyticsEnabled ? 1 : 0);
+  q.bindValue(":index_enabled", c.indexEnabled ? 1 : 0);
   q.bindValue(":record_enabled", c.recordEnabled ? 1 : 0);
   q.bindValue(":enabled", c.enabled ? 1 : 0);
   q.bindValue(":retention_days", c.retentionDays);
@@ -438,7 +444,7 @@ bool Store::updateCamera(const Camera& c) {
   return q.numRowsAffected() == 1;
 }
 
-// One transaction: a deleted camera must never keep playable segments or evidence.
+// One transaction: a deleted camera must never keep playable segments, evidence or search results.
 bool Store::softDeleteCamera(const QString& id, int64_t nowUtcMs, MarkedEvidence* marked) {
   MarkedEvidence local;
   const bool ok = transact([&] {
@@ -457,8 +463,10 @@ bool Store::softDeleteCamera(const QString& id, int64_t nowUtcMs, MarkedEvidence
       lastError_ = segments.lastError().text();
       return false;
     }
-    return markEvidenceDeleted(QStringLiteral("camera_id=:cam"), {{QStringLiteral(":cam"), text(id)}},
-                               QStringLiteral("camera deleted"), nowUtcMs, &local);
+    const QVariantMap binds{{QStringLiteral(":cam"), text(id)}};
+    return markEvidenceDeleted(QStringLiteral("camera_id=:cam"), binds, QStringLiteral("camera deleted"), nowUtcMs, &local) &&
+           markEmbeddingsDeleted(QStringLiteral("camera_id=:cam"), binds, &local) &&
+           skipJobsOfDeletedSegments(QStringLiteral("camera_id=:cam"), binds, nowUtcMs);
   });
   if (ok && marked) *marked = local;
   return ok;
@@ -729,9 +737,12 @@ SegmentDeletion Store::deleteSegmentUnlessHeld(const QString& id, const QString&
     return rollback(SegmentDeletion::Failed);
   }
   MarkedEvidence local;
+  const QVariantMap segment{{QStringLiteral(":seg"), text(id)}};
   if (!markEvidenceDeleted(QStringLiteral("segment_ids_json LIKE :pattern"),
                            {{QStringLiteral(":pattern"), QStringLiteral("%\"") + id + QStringLiteral("\"%")}},
-                           QStringLiteral("segment %1 deleted by retention").arg(id), nowUtcMs, &local))
+                           QStringLiteral("segment %1 deleted by retention").arg(id), nowUtcMs, &local) ||
+      !markEmbeddingsDeleted(QStringLiteral("segment_id=:seg"), segment, &local) ||
+      !skipJobsOfDeletedSegments(QStringLiteral("segment_id=:seg"), segment, nowUtcMs))
     return rollback(SegmentDeletion::Failed);
   if (!exec(QStringLiteral("COMMIT"))) return rollback(SegmentDeletion::Failed);
   if (marked) *marked = local;

@@ -326,6 +326,7 @@ bool CameraManager::deleteCamera(const QString& id, QString* error) {
     return false;
   }
   Store::removeEvidenceFiles(marked.thumbnails, config_.dataDir + QStringLiteral("/evidence"));
+  Store::removeIndexFiles(marked.indexThumbnails, config_.dataDir + QStringLiteral("/index"));
   impl_->secrets.remove(id);
   if (const auto tap = impl_->taps.find(id); tap != impl_->taps.end()) {
     tap->second->setEnabled(false);
