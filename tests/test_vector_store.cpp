@@ -134,10 +134,15 @@ void TestVectorStore::compactsIntoFreshFile() {
   QVERIFY2(VectorStore::copyRecords(store.root(), file, target, 3, keep, &moved, &error), qPrintable(error));
   QCOMPARE(moved, (QVector<int64_t>{16, 16 + VectorStore::recordBytes(3)}));
   QVERIFY(!VectorStore::copyRecords(store.root(), file, target, 3, keep, &moved, &error));
-  VectorStore::Reader reader;
-  QVERIFY(reader.open(store.absolutePath(target), 3));
-  QVERIFY(sameVector(reader.vector(moved[0], 2), records[1]));
-  QVERIFY(sameVector(reader.vector(moved[1], 5), records[4]));
+  // Windows refuses to remove a file while a mapping of it is open, which is
+  // why the scheduler removes files only while no search is scanning; the
+  // reader here is closed before the removals below for the same reason.
+  {
+    VectorStore::Reader reader;
+    QVERIFY(reader.open(store.absolutePath(target), 3));
+    QVERIFY(sameVector(reader.vector(moved[0], 2), records[1]));
+    QVERIFY(sameVector(reader.vector(moved[1], 5), records[4]));
+  }
   QCOMPARE(store.repair(target).records, 2);
 
   QVERIFY(!VectorStore::copyRecords(store.root(), file, store.freshName(file), 3, {offsets[5] + 1000}, &moved, &error));

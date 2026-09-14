@@ -383,6 +383,11 @@ Done
   version `b63a3a358815`, model google/siglip2-base-patch16-224) and the
   permanent "Similarity search. Results are not verified." note above the four
   disabled actions. The console exited 0 and the core shut down cleanly.
+- Verified: the M4 core, console and worker compile with MSVC and pass the
+  Windows unit tests in CI (run on the first push of this code; one test failed
+  because it removed a vector file while a reader still mapped it, which
+  Windows refuses and which the scheduler already avoids by removing files only
+  while no search is scanning; the test now closes the reader first).
 - Windows packaging: `Setup-Worker.cmd` now also downloads the SigLIP 2
   weights (about 1.5 GB) into the Hugging Face cache, because the worker never
   downloads at run time and the Search tab needs them; `scripts/fetch-models.sh
