@@ -117,6 +117,10 @@ Three processes on one machine:
 | `fovea-core` | Headless service: GStreamer camera pipelines, recording, shared-memory frame distribution, SQLite metadata, loopback HTTP API, rules and alerts. |
 | `fovea-worker` | Python model worker: detection and tracking (RF-DETR + ByteTrack), VLM, embeddings. A separate process so a model crash never stops recording. |
 
+Working on the code: [AGENTS.md](AGENTS.md) has the build, test and
+verification commands, the rules for changes and the traps that have already
+cost time.
+
 Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md),
 [docs/API.md](docs/API.md), [docs/DATA_CONTRACTS.md](docs/DATA_CONTRACTS.md),
 [docs/M3_DESIGN.md](docs/M3_DESIGN.md), [docs/M4_DESIGN.md](docs/M4_DESIGN.md),

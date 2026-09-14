@@ -448,5 +448,7 @@ Not verified
 
 ## Next
 - M5: VLM re-check of search results, semantic rules, drafting and follow-up
-  questions (`docs/M5_DESIGN.md`).
+  questions. `docs/M5_DESIGN.md` is the contract, `docs/M5_PLAN.md` the order to
+  build it in. Nothing of it exists yet; `vlm_role` on a rule revision is
+  accepted only as `none`.
 - Windows: M2, M3 and M4 verification scripts on the target NVIDIA machine.
